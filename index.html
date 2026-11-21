@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a111f">
+<script>/* aplica o tema antes de pintar a página (sem piscar) */(function(){try{var e=localStorage.getItem("dp_tema")||"auto",c=e==="claro"||(e==="auto"&&window.matchMedia("(prefers-color-scheme: light)").matches);document.documentElement.setAttribute("data-theme",c?"light":"dark");var m=document.querySelector("meta[name=theme-color]");if(m)m.setAttribute("content",c?"#eef3fb":"#0a111f")}catch(_){document.documentElement.setAttribute("data-theme","dark")}})()</script>
+<title>Produção Parcial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3M16 8l4 4-4 4M20 12H9"/></symbol>
+<symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.5-4M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.5 4M20 20v-4h-4"/></symbol>
+<symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></symbol>
+<symbol id="i-calcheck" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18M9 15.5l2.2 2.2 4-4.5"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></symbol>
+<symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></symbol>
+<symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+<symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.4"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17.2" cy="9" r="2.6"/><path d="M17 14.2c2.7 0 4.5 1.9 4.5 4.8"/></symbol>
+<symbol id="i-gap" viewBox="0 0 24 24"><path d="M3 7l6 6 4-4 8 8M21 11v6h-6"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.01" stroke-width="2.8"/></symbol>
+<symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" fill="currentColor" stroke="none"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7z" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3l10 18H2z" fill="currentColor" stroke-width="2"/><path d="M12 10v5M12 18v.01" stroke="#07102a" stroke-width="2.4"/></symbol>
+<symbol id="i-bars" viewBox="0 0 24 24"><path d="M5 20v-5M11 20V9M17 20V4" stroke-width="3.5"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M7.5 12.5l3 3 6-6.5" stroke="#07102a" stroke-width="2.6"/></symbol>
+<symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+<symbol id="i-trophy" viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0z" fill="currentColor"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3M12 14v4M8 21h8"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M10 8v8l6.5-4z" fill="#07102a" stroke="none"/></symbol>
+<symbol id="i-stop" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.2"/><rect x="9" y="9" width="6" height="6" rx="1.2" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-ghost" viewBox="0 0 24 24"><path d="M5 21V11a7 7 0 0 1 14 0v10l-3.5-2.4L12 21l-3.5-2.4z"/><path d="M9.5 11h.01M14.5 11h.01" stroke-width="3"/></symbol>
+<symbol id="i-hourglass" viewBox="0 0 24 24"><path d="M7 3h10M7 21h10M8 3v4.2c0 1.3.6 2.5 1.7 3.3L12 12l-2.3 1.5A4 4 0 0 0 8 16.8V21M16 3v4.2c0 1.3-.6 2.5-1.7 3.3L12 12l2.3 1.5a4 4 0 0 1 1.7 3.3V21"/></symbol>
+<symbol id="i-stack" viewBox="0 0 24 24"><path d="M12 2.8l9.2 4.9-9.2 4.9-9.2-4.9z"/><path d="M2.8 12l9.2 4.9 9.2-4.9M2.8 16.3l9.2 4.9 9.2-4.9"/></symbol>
+<symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11.5L12 3.5l9 8M5.5 10v10.5h4.5v-6h4v6h4.5V10"/></symbol>
+<symbol id="i-phone" viewBox="0 0 24 24"><path d="M5 4h3.6l1.9 4.9-2.4 1.6a11 11 0 0 0 5.4 5.4l1.6-2.4 4.9 1.9V19a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></symbol>
+<symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H10l-4.5 4v-4h0A1.5 1.5 0 0 1 4 14.5z"/><path d="M8.5 9h7M8.5 12h4.5"/></symbol>
+<symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21.5s7.2-6.3 7.2-11.8a7.2 7.2 0 0 0-14.4 0c0 5.5 7.2 11.8 7.2 11.8z"/><circle cx="12" cy="9.7" r="2.6"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+<symbol id="i-queue" viewBox="0 0 24 24"><path d="M4 6h16M4 12h11M4 18h6"/><circle cx="19" cy="16.5" r="2.6"/></symbol>
+<symbol id="i-percent" viewBox="0 0 24 24"><path d="M19 5L5 19"/><circle cx="7.2" cy="7.2" r="2.6"/><circle cx="16.8" cy="16.8" r="2.6"/></symbol>
+<symbol id="i-swap" viewBox="0 0 24 24"><path d="M6 8h13M15.5 4.5L19 8l-3.5 3.5M18 16H5M8.5 12.5L5 16l3.5 3.5"/></symbol>
+<symbol id="i-redo" viewBox="0 0 24 24"><path d="M20 11.5a8 8 0 1 0-2.3 5.7M20.5 4v7.5H13"/></symbol>
+<symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v8.5M6.4 6.9a8 8 0 1 0 11.2 0"/></symbol>
+<symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2.5 9a15 15 0 0 1 19 0M5.8 12.6a10 10 0 0 1 12.4 0M9 16.2a5 5 0 0 1 6 0"/><path d="M12 20h.01" stroke-width="3"/></symbol>
+<symbol id="i-signal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M8 8a5.7 5.7 0 0 0 0 8M16 8a5.7 5.7 0 0 1 0 8M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/></symbol>
+<symbol id="i-dots" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3.6"/></symbol>
+<symbol id="i-list" viewBox="0 0 24 24"><path d="M8.5 6H20M8.5 12H20M8.5 18H20"/><path d="M4 6h.01M4 12h.01M4 18h.01" stroke-width="3"/></symbol>
+<symbol id="i-pie" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9h-9z"/><path d="M15.5 3.4A9 9 0 0 1 20.6 8.5h-5.1z"/></symbol>
+<symbol id="i-login" viewBox="0 0 24 24"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 8l4 4-4 4M14 12H3"/></symbol>
+<symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="12.5" rx="2"/><path d="M8.5 20.5h7M12 16.5v4"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.4" fill="currentColor" stroke="none"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" fill="none" stroke="currentColor" stroke-width="2.2"/></symbol>
+<symbol id="i-eyeoff" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7c2 0 3.8.8 5.3 1.9M22 12s-4 7-10 7c-2 0-3.8-.8-5.3-1.9"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2M4 4l16 16"/></symbol>
+<symbol id="i-save" viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/></symbol>
+<symbol id="i-tick" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></symbol>
+<symbol id="i-grid" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/></symbol>
+</defs></svg>
+<div id="tvbar" class="tvbar" aria-hidden="true"><b id="tvTela"></b><span id="tvAtual"></span><span id="tvRelogio"></span></div>
+<div id="tvSair" class="tv-sair" aria-hidden="true" title="Segure para sair do modo TV"></div>
+<nav id="bnav" class="bnav" aria-label="Navegação principal">
+  <button type="button" data-a="prod" class="on" aria-current="page"><svg class="i" aria-hidden="true"><use href="#i-bars"/></svg><span>Produção</span></button>
+  <button type="button" data-a="blk"><svg class="i" aria-hidden="true"><use href="#i-stack"/></svg><span>Backlog</span></button>
+  <button type="button" data-a="filtro"><svg class="i" aria-hidden="true"><use href="#i-sliders"/></svg><span>Filtros</span></button>
+</nav>
+<div id="temaMenu" class="tema-menu" role="menu" aria-label="Tema" hidden>
+  <button type="button" role="menuitemradio" data-t="auto"><svg class="i" aria-hidden="true"><use href="#i-sliders"/></svg>Automático</button>
+  <button type="button" role="menuitemradio" data-t="claro"><svg class="i" aria-hidden="true"><use href="#i-sun"/></svg>Claro</button>
+  <button type="button" role="menuitemradio" data-t="escuro"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg>Escuro</button>
+</div>
+<div id="alertaSync" class="alerta-sync" role="alert" hidden></div>
+<div id="ptr" class="ptr" aria-hidden="true"></div>
+<div id="login" role="dialog" aria-labelledby="lgTitulo">
+  <form class="lg-card" id="lgForm" novalidate>
+    <div class="lg-logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-5M10 21v-9M16 21v-12" stroke="#3b9bff" stroke-width="3.4"/><path d="M3 11l6-4 4 3 8-6M16 4h5v5" stroke="#ff8a1f" stroke-width="2.2"/></svg></div>
+    <h1 id="lgTitulo">Produção Parcial</h1>
+    <p class="lg-sub">As informações registradas no sistema não representam valores oficialmente validados para fins de premiação.</p>
+    <div class="lg-field">
+      <label for="lgUser"><svg class="i" aria-hidden="true"><use href="#i-user"/></svg>Login</label>
+      <input id="lgUser" class="lg-inp" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="seu.login" required>
+    </div>
+    <div class="lg-field">
+      <label for="lgPass"><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg>Senha</label>
+      <div class="lg-pw">
+        <input id="lgPass" class="lg-inp" type="password" autocomplete="current-password" autocapitalize="none" placeholder="Sua senha" required>
+        <button type="button" class="lg-eye" id="lgEye" aria-label="Mostrar senha" title="Mostrar senha"><svg class="i" aria-hidden="true"><use href="#i-eye"/></svg></button>
+      </div>
+    </div>
+    <div class="lg-acts">
+      <button type="submit" class="lg-btn" id="lgBtn" disabled><svg class="i" aria-hidden="true"><use href="#i-login"/></svg>Entrar</button>
+      <button type="button" class="lg-btn sv" id="lgSave" aria-pressed="false" title="Guardar login e senha neste aparelho para entrar direto"><svg class="i" aria-hidden="true"><use href="#i-save"/></svg><span>Salvar credenciais</span></button>
+    </div>
+    <p class="lg-msg" id="lgMsg" aria-live="polite"></p>
+    <div class="lg-foot">© 2026 William Dantas</div>
+  </form>
+</div>
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand">
+      <div class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-5M10 21v-9M16 21v-12" stroke="#3b9bff" stroke-width="3.4"/><path d="M3 11l6-4 4 3 8-6M16 4h5v5" stroke="#ff8a1f" stroke-width="2.2"/></svg></div>
+      <div><h1 id="titulo">Produção Parcial</h1><p id="subtitulo"></p></div>
+    </div>
+    <button class="icon-btn refbtn" id="refBtn" aria-label="Atualizar dados"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+    <button class="icon-btn tvbtn" id="tvBtn" type="button" aria-label="Modo TV" title="Modo TV"><svg class="i" aria-hidden="true"><use href="#i-monitor"/></svg></button>
+    <button class="icon-btn tema-btn" type="button" aria-label="Tema: escolher" title="Tema" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg></button>
+    <button class="icon-btn blkbtn" id="blkBtn" aria-label="Backlog" title="Backlog"><svg class="i" aria-hidden="true"><use href="#i-stack"/></svg></button>
+    <button class="icon-btn sairbtn" id="sairBtn" aria-label="Sair" title="Sair"><svg class="i" aria-hidden="true"><use href="#i-logout"/></svg></button>
+  </header>
+
+  <div id="frescor" class="frescor" role="status" hidden></div>
+
+  <div class="tools">
+    <label class="search">
+      <svg class="i" aria-hidden="true"><use href="#i-search"/></svg>
+      <input id="busca" type="search" placeholder="Pesquisar técnico" autocomplete="off" aria-label="Pesquisar técnico">
+    </label>
+    <button class="filter-btn" id="filtroBtn" aria-label="Abrir filtros">
+      <svg class="i" aria-hidden="true"><use href="#i-sliders"/></svg>
+      Filtros
+      <svg class="i" aria-hidden="true"><use href="#i-down"/></svg>
+    </button>
+  </div>
+
+  <section class="kpis k6" aria-label="Resumo">
+    <div class="kpi"><svg class="i" aria-hidden="true"><use href="#i-users"/></svg><b id="kTec">0</b><span>Ativos</span></div>
+    <div class="kpi warn"><svg class="i" aria-hidden="true"><use href="#i-clock"/></svg><b id="kPend">0</b><span>Pendências</span></div>
+    <div class="kpi inst"><svg class="i" aria-hidden="true"><use href="#i-bars"/></svg><b id="kInst">0</b><span>Instalações</span></div>
+    <div class="kpi plk"><svg class="i" aria-hidden="true"><use href="#i-play"/></svg><b id="kPlay">0</b><span>Play</span></div>
+    <div class="kpi ok"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><b id="kConcl">0</b><span>Concluídos</span><button type="button" class="kcmp" id="kCmp" hidden></button></div>
+    <div class="kpi gap" id="kGapCard"><svg class="i" id="kGapIcon" aria-hidden="true"><use href="#i-gap"/></svg><b id="kGap">0</b><span>Gap</span></div>
+  </section>
+
+  <div class="modo" id="modo" role="status"></div>
+
+  <div id="aviso"></div>
+
+  <section class="table" role="table" aria-label="Desempenho por técnico">
+    <div class="grid thead" role="row">
+      <div class="rb" role="columnheader" data-k="reabInst"><button type="button" class="th" data-k="reabInst" aria-label="Ordenar por Reabertura de Instalação"><svg class="i" style="color:var(--ic-reab-i)" aria-hidden="true"><use href="#i-warn"/></svg><span>Reab.<br>Inst.</span></button></div>
+      <div class="rb" role="columnheader" data-k="reabPend"><button type="button" class="th" data-k="reabPend" aria-label="Ordenar por Reabertura de Pendência"><svg class="i" style="color:var(--ic-reab-p)" aria-hidden="true"><use href="#i-warn"/></svg><span>Reab.<br>Pend.</span></button></div>
+      <div role="columnheader" data-k="inst"><button type="button" class="th" data-k="inst" aria-label="Ordenar por Instalação"><svg class="i" style="color:var(--ic-inst)" aria-hidden="true"><use href="#i-bars"/></svg><span><span class="l">Instalação</span><span class="s">Inst.</span></span></button></div>
+      <div role="columnheader" data-k="pend"><button type="button" class="th" data-k="pend" aria-label="Ordenar por Pendência"><svg class="i" style="color:var(--ic-pend)" aria-hidden="true"><use href="#i-check"/></svg><span><span class="l">Pendência</span><span class="s">Pend.</span></span></button></div>
+      <div role="columnheader" data-k="concl"><button type="button" class="th" data-k="concl" aria-label="Ordenar por Concluídos"><svg class="i" style="color:var(--ic-concl)" aria-hidden="true"><use href="#i-check"/></svg><span><span class="l">Concluídos</span><span class="s">Concl.</span></span></button></div>
+      <div class="pl-h" role="columnheader" data-k="play"><button type="button" class="th" data-k="play" aria-label="Ordenar por Play"><svg class="i" style="color:var(--ic-play)" aria-hidden="true"><use href="#i-play"/></svg><span>Play</span></button></div>
+      <div class="tec" role="columnheader" data-k="nome"><button type="button" class="th" data-k="nome" aria-label="Ordenar por Técnico"><svg class="i" aria-hidden="true"><use href="#i-wrench"/></svg><span>Técnico</span></button></div>
+      <div></div>
+    </div>
+    <div class="rows" id="rows" role="rowgroup" aria-live="polite"></div>
+  </section>
+
+  <button class="more" id="maisBtn" aria-expanded="false" aria-controls="detalhes">
+    Mais detalhes
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+  </button>
+  <div class="details" id="detalhes" hidden><div class="dgrid" id="dgrid"></div></div>
+<div data-rodape></div>
+</div>
+
+<!-- ===== BACKLOG ===== -->
+<div class="bwrap" id="blk">
+  <header class="top">
+    <div class="brand">
+      <div class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.8l9.2 4.9-9.2 4.9-9.2-4.9z" stroke="#ff8a1f" stroke-width="2.2"/><path d="M2.8 12l9.2 4.9 9.2-4.9M2.8 16.3l9.2 4.9 9.2-4.9" stroke="#3b9bff" stroke-width="2.4"/></svg></div>
+      <div><h1 id="bTitulo">Backlog</h1><p id="bSub">OS abertas</p></div>
+    </div>
+    <button class="icon-btn refbtn" id="bRef" aria-label="Atualizar dados"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+    <button class="icon-btn tvbtn" id="bTvBtn" type="button" aria-label="Modo TV" title="Modo TV"><svg class="i" aria-hidden="true"><use href="#i-monitor"/></svg></button>
+    <button class="icon-btn tema-btn" type="button" aria-label="Tema: escolher" title="Tema" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg></button>
+    <button class="icon-btn bfiltbtn" id="bFiltBtn" aria-label="Filtrar por supervisor" title="Filtrar por supervisor"><svg class="i" aria-hidden="true"><use href="#i-sliders"/></svg></button>
+    <button class="icon-btn" id="bHome" aria-label="Voltar" title="Voltar"><svg class="i" aria-hidden="true"><use href="#i-home"/></svg></button>
+  </header>
+
+  <div id="bFrescor" class="frescor" role="status" hidden></div>
+  <button type="button" class="fbtn bnotif" id="bNotif" hidden>Avisar quando OS estiver para vencer</button>
+
+  <div class="modo hoje" id="bModo" role="status"></div>
+  <div id="bAviso"></div>
+
+  <section class="emps" id="bEmps" aria-label="Empresas"></section>
+  <section class="kpis bk" id="bKpis" aria-label="Resumo do backlog"></section>
+
+  <div class="tools">
+    <label class="search">
+      <svg class="i" aria-hidden="true"><use href="#i-search"/></svg>
+      <input id="bBusca" type="search" placeholder="Protocolo, cliente, cidade, técnico" autocomplete="off" aria-label="Pesquisar OS">
+    </label>
+    <select class="bsel" id="bOrdem" aria-label="Ordenar lista">
+      <option value="atraso">Mais atrasadas</option>
+      <option value="prazo">Prazo mais próximo</option>
+      <option value="antigas">Mais antigas</option>
+      <option value="recentes">Mais recentes</option>
+      <option value="cidade">Cidade (A a Z)</option>
+      <option value="tecnico">Técnico (A a Z)</option>
+    </select>
+  </div>
+  <div class="chips" id="bChips" role="group" aria-label="Situação"></div>
+  <div class="fstrip" id="bStrip"></div>
+
+  <div class="bsecs">
+    <section class="bsec" aria-label="Por tipo"><h2><svg class="i" aria-hidden="true"><use href="#i-grid"/></svg>Por tipo de OS<small id="bTipoN"></small></h2><div id="bTipo"></div></section>
+    <section class="bsec" aria-label="Por status"><h2><svg class="i" aria-hidden="true"><use href="#i-pie"/></svg>Por status<small id="bStN"></small></h2><div id="bSt"></div></section>
+    <section class="bsec" aria-label="Tempo de atraso"><h2><svg class="i" aria-hidden="true"><use href="#i-hourglass"/></svg>Tempo de atraso<small id="bAgN"></small></h2><div id="bAg"></div></section>
+    <section class="bsec" aria-label="Por cidade"><h2><svg class="i" aria-hidden="true"><use href="#i-pin"/></svg>Por cidade<small id="bCidN"></small></h2><div id="bCid"></div></section>
+    <section class="bsec" id="bTecSec" aria-label="Por técnico"><h2><svg class="i" aria-hidden="true"><use href="#i-wrench"/></svg>Por técnico<small id="bTecN"></small></h2><div id="bTec"></div></section>
+    <section class="bsec wide" aria-label="Comparativo por empresa"><h2><svg class="i" aria-hidden="true"><use href="#i-bars"/></svg>Comparativo por empresa</h2><div class="mxw" id="bMx"></div></section>
+    <section class="bsec wide" id="bLista" aria-label="Lista de OS">
+      <div class="lhead"><h2><svg class="i" aria-hidden="true"><use href="#i-list"/></svg>Ordens de serviço</h2><small id="bListN"></small><button type="button" class="fbtn" id="bCsv">Exportar CSV</button></div>
+      <div class="olist" id="bOs" aria-live="polite"></div>
+      <button class="more" id="bMais" type="button" hidden>Mostrar mais</button>
+    </section>
+  </div>
+  <div data-rodape></div>
+</div>
+
+<!-- Rodapé (componente único, usado na Produção e no Backlog) -->
+<template id="tplRodape"><footer class="foot"><span>© 2026 <b>William Dantas</b></span></footer></template>
+
+<!-- Filtros -->
+<dialog id="dlgFiltro"><form method="dialog" class="dlg" id="fForm">
+  <h2>Filtros</h2><p class="sub">Escolha o período e como ordenar.</p>
+  <label for="fPeriodo">Período</label>
+  <select id="fPeriodo" class="ctl">
+    <option value="hoje">Hoje (produção ao vivo)</option>
+    <option value="ontem">Ontem</option>
+    <option value="ultimo">Último dia com dados</option>
+    <option value="tudo">Todo o período da base</option>
+    <option value="7d">Últimos 7 dias</option>
+    <option value="mes">Mês atual</option>
+    <option value="custom">Personalizado</option>
+    <option value="cal">Produção mensal (calendário)</option>
+  </select>
+  <div id="fCustom" hidden>
+    <label for="fIni">De</label><input id="fIni" type="date" class="ctl">
+    <label for="fFim">Até</label><input id="fFim" type="date" class="ctl">
+  </div>
+  <div class="cal-sec" id="fCal">
+    <div class="cal-top"><div><b>Produção mensal</b><span id="calRes">Nenhuma seleção</span></div><button type="button" class="btn" id="calToggle">Abrir calendário</button></div>
+    <div id="calBody" hidden></div>
+  </div>
+  <div id="fSupWrap" hidden>
+    <div class="mlabel" id="fSupLbl">Supervisores</div>
+    <div class="msel" id="fSupBox" role="group" aria-labelledby="fSupLbl"></div>
+    <p class="mhint">Marque uma, várias ou todas as equipes.</p>
+  </div>
+  <label for="fOrd">Ordenar por</label>
+  <select id="fOrd" class="ctl">
+    <option value="sup">Supervisor (A a Z) + mais concluídos</option>
+    <option value="concl">Mais concluídos (geral)</option>
+    <option value="atencao">Atenção primeiro</option>
+    <option value="reab">Mais reaberturas</option>
+    <option value="reabInst">Reab. Instalação (maior primeiro)</option>
+    <option value="reabPend">Reab. Pendência (maior primeiro)</option>
+    <option value="inst">Instalações (maior primeiro)</option>
+    <option value="pend">Pendências (maior primeiro)</option>
+    <option value="nome">Nome (A a Z)</option>
+    <option value="play">Play (A a Z)</option>
+  </select>
+  <label>Exportar</label>
+  <div class="exp">
+    <button type="button" class="btn" id="fCsv">CSV da tabela</button>
+    <button type="button" class="btn" id="fPrint">Imprimir ou salvar PDF</button>
+  </div>
+  <div class="actions">
+    <button type="button" class="btn" id="fFechar">Fechar</button>
+    <button type="button" class="btn" id="fLimpar">Limpar</button>
+    <button type="submit" class="btn pri" value="ok">Aplicar</button>
+  </div>
+</form></dialog>
+
+<!-- Filtro do Backlog (supervisor) -->
+<dialog id="dlgBFiltro"><form method="dialog" class="dlg" id="bfForm">
+  <h2>Filtrar backlog</h2><p class="sub">Veja o backlog apenas das OS dos técnicos das equipes marcadas.</p>
+  <div class="mlabel" id="bfLbl">Supervisores</div>
+  <div class="msel" id="bfBox" role="group" aria-labelledby="bfLbl"></div>
+  <div class="actions">
+    <button type="button" class="btn" id="bfFechar">Fechar</button>
+    <button type="button" class="btn" id="bfLimpar">Limpar</button>
+    <button type="submit" class="btn pri" value="ok">Aplicar</button>
+  </div>
+</form></dialog>
+
+<!-- Detalhe do técnico -->
+<dialog id="dlgTec"><div class="dlg">
+  <h2 id="tNome"></h2><p class="sub" id="tSup"></p><span class="chip" id="tChip"></span>
+  <dl class="det" id="tDet"></dl>
+  <div class="tdias" id="tDias"></div>
+  <div class="actions"><button type="button" class="btn pri" id="tFechar">Fechar</button></div>
+</div></dialog>
+
+<!-- Atividade em execução (Play) -->
+<dialog id="dlgPlay"><div class="dlg">
+  <h2 id="pNome"></h2><p class="sub" id="pSub"></p>
+  <div id="pLista"></div>
+  <div class="actions"><button type="button" class="btn pri" id="pFechar">Fechar</button></div>
+</div></dialog>
+
+<!-- Detalhe da OS (Backlog) -->
+<dialog id="dlgOS"><div class="dlg" id="osBox">
+  <h2 id="oTipo"></h2><p class="sub" id="oSub"></p>
+  <div class="ochips" id="oChips"></div>
+  <div class="oacts" id="oActs"></div>
+  <dl class="det" id="oDet"></dl>
+  <div class="odesc" id="oDescBox"><h3>Descrição da abertura</h3><p id="oDesc"></p><div id="oDescAux"></div></div>
+  <div class="actions"><button type="button" class="btn pri" id="oFechar">Fechar</button></div>
+</div></dialog>
+
+<!-- Concluídos hoje (Backlog) -->
+<dialog id="dlgCH"><div class="dlg" id="chBox">
+  <h2>Concluídos hoje</h2><p class="sub" id="chSub"></p>
+  <div class="chips" id="chChips" role="group" aria-label="Empresa"></div>
+  <label class="search chsearch">
+    <svg class="i" aria-hidden="true"><use href="#i-search"/></svg>
+    <input id="chBusca" type="search" placeholder="Protocolo, cliente, cidade, técnico" autocomplete="off" aria-label="Pesquisar OS concluídas">
+  </label>
+  <div id="chLista"></div>
+  <div class="actions"><button type="button" class="btn pri" id="chFechar">Fechar</button></div>
+</div></dialog>
+
+<!-- Código de acesso -->
+<dialog id="dlgCodigo"><form method="dialog" class="dlg" id="cForm">
+  <h2>Código de acesso</h2><p class="sub" id="cMsg">Digite o código para ver o painel.</p>
+  <label for="cInput" class="sr" style="position:absolute;left:-9999px">Código</label>
+  <input id="cInput" class="ctl" type="password" autocomplete="off" placeholder="Código">
+  <div class="actions"><button type="submit" class="btn pri" value="ok">Entrar</button></div>
+</form></dialog>
+
+<script src="app.js" defer></script>
+</body>
+</html>
