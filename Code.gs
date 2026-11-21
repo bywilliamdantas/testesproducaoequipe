@@ -59,6 +59,14 @@
  *     coordenador -> produção de todas as equipes + backlog geral
  *   Ativo = NÃO bloqueia o login e tira a pessoa das listas. Vazio conta como ativo.
  *
+ * ESCALA (aba Escala_FDS): linha com "COLABORADOR" = cabeçalho; a partir da coluna seguinte, uma coluna por data (aceita data real ou texto "1/nov.").
+ *   Código da célula: contém EXTRA = extra · TRA (ou TRABALHO / ESCALA) = trabalha · FOL ou "F. ..." = folga · FÉRIAS.
+ *   Dia de escala = sábado, domingo ou feriado (dia útil com 30% ou mais de "F." na coluna). Nesses dias, TRA = técnico de ESCALA.
+ *   EXTRA conta em qualquer dia. O filtro (parâmetro escala=aaaa-mm-dd) mostra só quem está de escala ou extra na data.
+ *
+ * ACESSOS (quem está logado): cada chamada autenticada grava o horário do usuário (PropertiesService, no máx. 1 vez por 45 s).
+ *   Online = atividade há até 4 minutos. Supervisor vê a própria equipe e controladores; coordenador vê tudo (acao=acessos).
+ *
  * PRIORIDADES (aba Prioridades: uma linha por pedido de prioridade; a mesma OS pode ter mais de um pedido):
  *   Colunas lidas pelo cabeçalho (a linha de cabeçalho é a que tem "SOLICITANTE", em qualquer uma das 15 primeiras linhas):
  *   protocolo (coluna sem título com números de 8+ dígitos, ou título "Protocolo"), SOLICITANTE, SETOR SOLICITANTE, JUSTIFICATIVA,
@@ -109,7 +117,10 @@ const ABA_ABERTOS = 'Base_Abertos';
 const ABA_SUP = 'Supervisor';
 const ABA_COORD = 'Coordenador';
 const ABA_CONTR = 'Controlador';    // Controlador | Supervisor | Login | Senha | Ativo
+const ABA_ESC = 'Escala_FDS';        // escala de fim de semana / feriado e extras (ver o bloco ESCALA no topo)
 const ABA_PRIO = 'Prioridades';     // pedidos de prioridade (ver o bloco PRIORIDADES no topo)
+const ACESSO_ON_MS = 4 * 60000;     // online = última atividade há no máximo 4 minutos (a tela avisa a cada 90 s)
+const ESC_FERIADO_PCT = 0.3;        // dia útil com 30% ou mais de "F." (folga/feriado) na escala conta como feriado
 const LIMITE_PRIO_DIAS = 30;        // dias de prioridades atendidas enviadas para a tela
 const LIMITE_PRIO_LISTA = 600;      // máx. de OS atendidas / sem registro detalhadas na resposta
 const ABA_METAS = 'Metas';          // Tipo | Meta I | Meta II | Meta III | Meta IV  (meta diária de concluídas por tipo de técnico)
@@ -128,6 +139,9 @@ function doGet(e) {
     _SINC = null;
     const acao = String(p.acao || '');
     if (acao === 'login') return json(fazerLogin(p));
+    if (acao === 'ping') return json(acaoPing(p));                // batimento da tela aberta (presença)
+    if (acao === 'sair') return json(acaoSair(p));
+    if (acao === 'acessos') return json(acaoAcessos(p));          // quem está logado / último acesso (supervisor e coordenador)
     if (acao === 'detalhe') return json(acaoDetalhe(p));          // lista de OS de um técnico (concl | play | agenda)
     if (acao === 'os') return json(acaoOS(p));                    // descrição de abertura de uma OS do Backlog
     if (acao === 'concluidosHoje') return json(acaoConcluidosHoje(p));
@@ -259,6 +273,7 @@ function autenticar(ss, login, senha) {
     for (let i = 0; i < lista.length; i++) {
       const u = lista[i];
       if (u.ativo && u.login && chave(u.login) === l && u.senha === s) {
+        registrarAcesso(l, false);
         return {
           papel: grupos[g][0], nome: u.nome,
           supervisor: grupos[g][0] === 'tecnico' || grupos[g][0] === 'controlador' ? u.ref : grupos[g][0] === 'supervisor' ? u.nome : '',
@@ -275,6 +290,7 @@ function negaLogin() { return { ok: false, auth: true, login: true, error: ERRO_
 function fazerLogin(p) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const u = autenticar(ss, p.login, p.senha);
+  if (u) registrarAcesso(chave(p.login), true);               // entrada: grava na hora e tira a marca de "saiu"
   return u ? { ok: true, usuario: usuarioPublico(u) } : negaLogin();
 }
 
@@ -748,6 +764,102 @@ function concluidosHojeDetalhe(ss, somenteNome) {
   } catch (e) { return null; }
 }
 
+/* ---------- ACESSOS (presença) ---------- */
+function registrarAcesso(k, forcar) {
+  try {
+    const c = CacheService.getScriptCache(), ck = 'acc:' + k;
+    if (!forcar && c.get(ck)) return;                            // já gravou há menos de 45 s
+    PropertiesService.getScriptProperties().setProperty('acc:' + k, JSON.stringify({ t: Date.now(), o: 0 }));
+    c.put(ck, '1', 45);
+  } catch (e) {}                                                  // presença nunca derruba a resposta
+}
+function acaoPing(p) { const a = autorizar(p); return a.erro ? a.erro : { ok: true, ms: Date.now() }; }
+function acaoSair(p) {
+  const a = autorizar(p); if (a.erro) return a.erro;
+  try {
+    const k = 'acc:' + chave(p.login);
+    PropertiesService.getScriptProperties().setProperty(k, JSON.stringify({ t: Date.now(), o: 1 }));
+    CacheService.getScriptCache().remove(k);
+  } catch (e) {}
+  return { ok: true };
+}
+// Lista de técnicos e controladores com login: online agora e último acesso. Supervisor: só a equipe dele; coordenador: todos.
+function acaoAcessos(p) {
+  const a = autorizar(p); if (a.erro) return a.erro;
+  if (a.usr.papel !== 'supervisor' && a.usr.papel !== 'coordenador') return { ok: false, error: 'Sem permissão.' };
+  let props = {};
+  try { props = PropertiesService.getScriptProperties().getProperties(); } catch (e) {}
+  const agora = Date.now(), sup = a.usr.papel === 'supervisor' ? nomeKey(a.usr.nome) : '';
+  const itens = [];
+  [['tecnico', ABA_TEC], ['controlador', ABA_CONTR]].forEach(g => {
+    lerUsuarios(a.ss, g[1]).forEach(u => {
+      if (!u.ativo || !u.login) return;
+      if (sup && nomeKey(u.ref) !== sup) return;
+      let r = null; try { r = JSON.parse(props['acc:' + chave(u.login)] || 'null'); } catch (e) {}
+      const t = r && r.t ? Number(r.t) : null;
+      itens.push({ nome: u.nome, papel: g[0], equipe: u.ref, ultimo: t, online: !!(t && !r.o && agora - t <= ACESSO_ON_MS) });
+    });
+  });
+  return { ok: true, agoraMs: agora, itens: itens };
+}
+
+/* ---------- ESCALA (aba Escala_FDS) ---------- */
+const MES_ABREV = { jan: 0, fev: 1, mar: 2, abr: 3, mai: 4, jun: 5, jul: 6, ago: 7, set: 8, out: 9, nov: 10, dez: 11 };
+// cabeçalho de data: data real, "dd/mm/aaaa" ou "1/nov." (sem ano: o mais próximo de hoje). Devolve "aaaa-mm-dd" ou ''
+function isoDataEscala(v) {
+  if (v instanceof Date) return isNaN(v) ? '' : isoDia(dia(v));
+  const t = String(v == null ? '' : v).trim();
+  if (!t) return '';
+  const l = lerData(t);
+  if (l && /\d{1,2}\/\d{1,2}\/\d{4}/.test(t)) return isoDia(dia(l));
+  const m = chave(t).match(/^(\d{1,2})\s*\/\s*([a-z]{3})/);
+  if (!m || MES_ABREV[m[2]] == null) return '';
+  const h = dia(new Date()); let y = h.getFullYear(); const mo = MES_ABREV[m[2]];
+  if (mo - h.getMonth() > 6) y--; else if (h.getMonth() - mo > 6) y++;
+  const d = new Date(y, mo, +m[1]);
+  return d.getMonth() === mo ? isoDia(d) : '';
+}
+// tipo do código da célula: extra | trab | folga | ferias | outro
+function tipoEscala(cod) {
+  const t = tipoLimpo(cod);
+  if (!t) return 'vazio';
+  if (t.indexOf('EXTRA') >= 0) return 'extra';
+  if (t === 'TRA' || t === 'TRABALHO' || t === 'ESCALA' || t === 'ESC') return 'trab';
+  if (t.indexOf('FERIAS') >= 0) return 'ferias';
+  if (t === 'FOL' || t === 'F' || t.indexOf('F ') === 0 || t.indexOf('FOLGA') === 0) return 'folga';
+  return 'outro';
+}
+function lerEscala(ss) { return viaCache('escala', CACHE_TTL_DADOS, null, () => lerEscalaRaw(ss)); }
+/** { ok, datas: [{ iso, escala (dia de escala), nEscala, nExtra }], porDia: { iso: { nomeKey: { c: código, t: tipo } } } } (só dias de escala ou com extra) */
+function lerEscalaRaw(ss) {
+  const sh = ss.getSheetByName(ABA_ESC);
+  if (!sh) return { ok: false, motivo: 'A aba ' + ABA_ESC + ' não foi encontrada.', datas: [], porDia: {} };
+  const v = sh.getLastRow() < 2 ? [] : sh.getDataRange().getValues();
+  let h = -1, iCol = -1;
+  for (let i = 0; i < Math.min(v.length, 10) && h < 0; i++) { const k = v[i].findIndex(c => chaveH(c) === 'colaborador'); if (k >= 0) { h = i; iCol = k; } }
+  if (h < 0) return { ok: false, motivo: 'Não achei a coluna COLABORADOR na aba ' + ABA_ESC + '.', datas: [], porDia: {} };
+  const cols = [];
+  for (let j = iCol + 1; j < v[h].length; j++) { const iso = isoDataEscala(v[h][j]); if (iso) cols.push({ j: j, iso: iso }); }
+  const linhas = v.slice(h + 1).filter(r => String(r[iCol] == null ? '' : r[iCol]).trim());
+  const datas = [], porDia = {};
+  cols.forEach(c => {
+    const mapa = {}; let nF = 0, nExt = 0, nTra = 0;
+    linhas.forEach(r => {
+      const cod = corrigeTexto(r[c.j]).replace(/\s+/g, ' ').trim(), t = tipoEscala(cod);
+      mapa[nomeKey(r[iCol])] = { c: cod, t: t };
+      if (t === 'folga' && /^F\b/i.test(sa(cod))) nF++;
+      if (t === 'extra') nExt++; if (t === 'trab') nTra++;
+    });
+    const d = new Date(+c.iso.slice(0, 4), +c.iso.slice(5, 7) - 1, +c.iso.slice(8, 10)), fim = d.getDay() === 0 || d.getDay() === 6;
+    const escala = fim || (linhas.length > 0 && nF / linhas.length >= ESC_FERIADO_PCT);
+    if (!escala && !nExt) return;                    // dia comum sem extra: fora da lista
+    datas.push({ iso: c.iso, escala: escala, nEscala: escala ? nTra : 0, nExtra: nExt });
+    porDia[c.iso] = mapa;
+  });
+  datas.sort((a, b) => a.iso < b.iso ? 1 : -1);
+  return { ok: true, datas: datas, porDia: porDia };
+}
+
 /* ---------- PRIORIDADES (aba Prioridades) ---------- */
 function digitosOS(v) { return String(v == null ? '' : v).replace(/\D/g, ''); }
 // Data/hora da aba Prioridades: Date, texto ou número serial do Sheets (dias desde 30/12/1899, sem fuso)
@@ -924,11 +1036,22 @@ function montar(p) {
   // técnicos ativos (aba Técnicos: Técnico | Supervisor | Login | Senha | Ativo)
   // técnico logado enxerga só a si mesmo; controlador só a equipe dele; supervisor e coordenador recebem todos (o painel filtra por equipe)
   const tecs = [];
+  const escIso = /^\d{4}-\d{2}-\d{2}$/.test(String(p.escala || '')) ? String(p.escala) : '';
+  let esc = null, nEsc = 0, nExt = 0;
+  if (usr.papel !== 'tecnico') { try { esc = lerEscala(ss); } catch (e) { esc = null; } }     // técnico não usa o filtro de escala
+  const escDia = escIso && esc && esc.ok ? (esc.porDia[escIso] || {}) : null;
   lerUsuarios(ss, ABA_TEC).forEach(u => {
     if (!u.ativo) return;
     if (usr.papel === 'tecnico' && nomeKey(u.nome) !== nomeKey(usr.nome)) return;
     if (usr.papel === 'controlador' && nomeKey(u.ref) !== nomeKey(usr.supervisor)) return;   // controlador: só a equipe do supervisor dele
-    tecs.push({ nome: up(u.nome), supervisor: u.ref, tipo: u.tipo });
+    let escReg = null;
+    if (escDia) {                                    // filtro de escala: só quem está de escala (TRA em dia de escala) ou de extra na data
+      const e = escDia[nomeKey(u.nome)];
+      if (!e || e.t === 'vazio' || !(e.t === 'extra' || (e.t === 'trab' && esc.datas.some(d => d.iso === escIso && d.escala)))) return;
+      escReg = { tp: e.t === 'extra' ? 'extra' : 'escala', cod: e.c };
+      if (e.t === 'extra') nExt++; else nEsc++;
+    }
+    tecs.push({ nome: up(u.nome), supervisor: u.ref, tipo: u.tipo, esc: escReg });
   });
 
   const hoje = dia(new Date());
@@ -1061,6 +1184,7 @@ function montar(p) {
       reabInst: m.reabInst, reabPend: m.reabPend, inst: m.inst, pend: m.pend, concl: m.concl,
       outros: m.outros, reabOutros: m.reabOutros, cancel: m.cancel, atraso: m.atraso,
       nivel: nivel,
+      escTipo: t.esc ? t.esc.tp : undefined, escCod: t.esc ? t.esc.cod : undefined,    // só com o filtro de escala ligado
       metasTipo: metas,                 // [Meta I, II, III, IV] ou null (sem Tipo / Tipo fora da aba Metas)
       metaRef: metaRef,                 // meta diária usada no GAP
       diasProd: diasProd, diasMeta: diasMeta,
@@ -1102,6 +1226,8 @@ function montar(p) {
     periodo: { ini: br(ini), fim: br(fim), iniBR: br(ini), fimBR: br(fim), rotulo: rotulo },
     supervisores: usr.papel === 'tecnico' ? [] : usr.papel === 'controlador' ? supervisoresDoControlador(ss, usr) : listaSupervisores(ss),
     prioOk: pm.ok,
+    escalaDatas: usr.papel === 'tecnico' || !esc || !esc.ok ? null : esc.datas,      // datas disponíveis no filtro de escala
+    escala: escIso ? { ok: !!(esc && esc.ok), data: escIso, nEscala: nEsc, nExtra: nExt } : null,
     metas: { normal: metaN, obs: metaO },
     metaGap: cfg.metaGap,
     metasOk: mt.ok,

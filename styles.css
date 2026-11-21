@@ -2991,3 +2991,19 @@ body.m-desk #dlgPrio { width: min(760px,calc(100% - 48px)) }
 .mt-row.ok .mt-s { color: var(--ok) }
 
 :root[data-theme="light"] .tag.prio, :root[data-theme="light"] .pchip.selo-prio, :root[data-theme="light"] .pr-bdg { color: hsl(280 70% 30%) }
+
+/* ===== escala / extra e acessos (novo) ===== */
+.esc-bdg { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 99px; font-size: .66rem; font-weight: 700; letter-spacing: .04em; vertical-align: middle; border: 1px solid; }
+.esc-bdg.escala { background: rgba(47,123,255,.2); border-color: rgba(47,123,255,.6); color: #b9d0ff }
+.esc-bdg.extra { background: hsl(280 80% 60% / .2); border-color: hsl(280 85% 70% / .6); color: hsl(280 95% 86%) }
+:root[data-theme="light"] .esc-bdg.escala { color: #123a8f } :root[data-theme="light"] .esc-bdg.extra { color: hsl(280 70% 30%) }
+#dlgAcess { width: min(520px,calc(100% - 24px)) }
+#acBox { max-height: calc(100dvh - 32px); overflow-y: auto }
+#acBox .chips { margin: 6px -2px 8px }
+body.m-desk #dlgAcess { width: min(640px,calc(100% - 48px)) }
+.acrow { display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 10px; padding: 10px 2px; border-bottom: 1px solid var(--line) }
+.acdot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim) }
+.acrow.on .acdot { background: var(--ok); box-shadow: 0 0 8px var(--ok) }
+.actxt b { display: block; font-size: .98rem } .actxt span { font-size: .78rem; color: var(--muted) }
+.acq { font-size: .78rem; color: var(--muted); text-align: right }
+.acrow.on .acq { color: var(--ok); font-weight: 700 }

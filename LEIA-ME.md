@@ -95,3 +95,24 @@ Colunas: Controlador | Supervisor | Login | Senha | Ativo. O nome em "Supervisor
 1. Cole o novo `Code.gs` e publique **nova versão** da implantação. 2. Suba `index.html`, `styles.css` e `app.js` juntos. 3. Rode `testarPrioridades` e `testarControlador` no editor. 4. `limparCache()` se quiser ver mudanças de planilha na hora.
 
 Testado com simulador (dados fictícios + os pedidos reais da planilha) e navegador automatizado. **Não testado no Apps Script real nem com a sua planilha completa.**
+
+---
+
+# Novidades (escala, login e acessos)
+
+| Pedido | Resultado | Onde |
+|---|---|---|
+| Aba **Escala_FDS** | Em **Filtros**, o campo "Escala e extra (fim de semana / feriado)" lista as datas da aba. Ao escolher uma data, a produção vai para esse dia e a tela mostra só quem está de **ESCALA** (selo azul) ou **EXTRA** (selo violeta), com o código da célula no detalhe do técnico e as contagens em "Mais detalhes". Disponível para supervisor, coordenador e controlador (o controlador continua só com a equipe dele). Técnico não vê o filtro. | `lerEscala`, `escOpcoes()` |
+| Botão do login | "Salvar credenciais" virou **Salvar**. | `index.html` |
+| Quem está logado | Ícone de pessoas no topo (só supervisor e coordenador): **online agora** e **último acesso** de técnicos e controladores, com filtros. Supervisor vê a própria equipe; coordenador vê todos. Atualiza sozinho a cada 30 s. | `acaoAcessos`, `acDesenhar()` |
+
+## Regras da escala (ajuste em `tipoEscala` / `ESC_FERIADO_PCT` no Code.gs se precisar)
+- Cabeçalho: a linha com **COLABORADOR**; as colunas seguintes são as datas (data real ou texto `1/nov.`).
+- Célula com **EXTRA** = extra (qualquer dia). **TRA** = escala, mas só em sábado, domingo ou feriado (dia útil com 30% ou mais de células "F." na coluna). **FOL**, **F. ESCALAVEL**, **F. OBRIGATORIA** = folga; **FÉRIAS** não aparece.
+- Entendi "F." como folga. Se for feriado trabalhado, me avise para trocar a regra.
+- O nome do colaborador precisa ser igual ao da aba Técnicos (acento e maiúsculas não importam).
+
+## Regras dos acessos
+- Cada chamada autenticada grava o horário (PropertiesService, no máximo 1 vez por 45 s). A tela aberta e visível avisa a cada 90 s. **Online** = atividade nos últimos 4 minutos. "Sair" marca offline na hora; fechar a aba só cai para offline em até 4 min.
+- Aparecem só técnicos e controladores **ativos e com login e senha**.
+- Na primeira publicação todos aparecem como "Nunca acessou" até entrarem.

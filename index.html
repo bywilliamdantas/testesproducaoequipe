@@ -96,7 +96,7 @@
     </div>
     <div class="lg-acts">
       <button type="submit" class="lg-btn" id="lgBtn" disabled><svg class="i" aria-hidden="true"><use href="#i-login"/></svg>Entrar</button>
-      <button type="button" class="lg-btn sv" id="lgSave" aria-pressed="false" title="Guardar login e senha neste aparelho para entrar direto"><svg class="i" aria-hidden="true"><use href="#i-save"/></svg><span>Salvar credenciais</span></button>
+      <button type="button" class="lg-btn sv" id="lgSave" aria-pressed="false" title="Guardar login e senha neste aparelho para entrar direto"><svg class="i" aria-hidden="true"><use href="#i-save"/></svg><span>Salvar</span></button>
     </div>
     <p class="lg-msg" id="lgMsg" aria-live="polite"></p>
     <div class="lg-foot">© 2026 William Dantas</div>
@@ -110,6 +110,7 @@
       <div><h1 id="titulo">Produção Parcial</h1><p id="subtitulo"></p></div>
     </div>
     <button class="icon-btn refbtn" id="refBtn" aria-label="Atualizar dados"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+    <button class="icon-btn acessbtn" id="acessBtn" type="button" aria-label="Quem está logado" title="Quem está logado" hidden><svg class="i" aria-hidden="true"><use href="#i-users"/></svg></button>
     <button class="icon-btn tvbtn" id="tvBtn" type="button" aria-label="Modo TV" title="Modo TV"><svg class="i" aria-hidden="true"><use href="#i-monitor"/></svg></button>
     <button class="icon-btn tema-btn" type="button" aria-label="Tema: escolher" title="Tema" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg></button>
     <button class="icon-btn blkbtn" id="blkBtn" aria-label="Backlog" title="Backlog"><svg class="i" aria-hidden="true"><use href="#i-stack"/></svg></button>
@@ -257,6 +258,11 @@
     <div class="msel" id="fSupBox" role="group" aria-labelledby="fSupLbl"></div>
     <p class="mhint">Marque uma, várias ou todas as equipes.</p>
   </div>
+  <div id="fEscWrap" hidden>
+    <label for="fEsc">Escala e extra (fim de semana / feriado)</label>
+    <select id="fEsc" class="ctl"><option value="">Todos os técnicos</option></select>
+    <p class="mhint">Mostra só quem está de escala ou extra na data escolhida e leva a produção para esse dia. Para sair, escolha "Todos os técnicos".</p>
+  </div>
   <label for="fOrd">Ordenar por</label>
   <select id="fOrd" class="ctl">
     <option value="sup">Supervisor (A a Z) + mais concluídos</option>
@@ -338,6 +344,14 @@
   <div class="chips" id="prChips" role="group" aria-label="Situação da prioridade"></div>
   <div id="prLista"></div>
   <div class="actions"><button type="button" class="btn pri" id="prFechar">Fechar</button></div>
+</div></dialog>
+
+<!-- Acessos: quem está logado (supervisor e coordenador) -->
+<dialog id="dlgAcess"><div class="dlg" id="acBox">
+  <h2>Quem está logado</h2><p class="sub" id="acSub"></p>
+  <div class="chips" id="acChips" role="group" aria-label="Filtro de acessos"></div>
+  <div id="acLista"></div>
+  <div class="actions"><button type="button" class="btn pri" id="acFechar">Fechar</button></div>
 </div></dialog>
 
 <!-- Código de acesso -->

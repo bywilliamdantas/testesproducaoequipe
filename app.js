@@ -1,8 +1,8 @@
 /* ============ CONFIGURAÇÃO ============ */
 // URL do app da web (termina em /exec), gerada ao implantar o Apps Script
-const URL_PADRAO = 'https://script.google.com/macros/s/AKfycbwk7bwgKvj5qjKmn4h_7nJU0lL4Ta_AYzE5wriG47ZQJX01kkvm3Op-vYpK3tTEUBn89w/exec';
+const URL_PADRAO = 'https://script.google.com/macros/s/AKfycbzJl3LOYfAWzagu-qGWXrfQX5xEoeCFMx54TUH8s3EBu3h1mPFxdjLDAo1eUlKP6V5WMw/exec';
 // Opcional: link CSV da aba "URL" publicada na web (assim você troca a URL só na planilha)
-const URL_CSV = 'https://script.google.com/macros/s/AKfycbwk7bwgKvj5qjKmn4h_7nJU0lL4Ta_AYzE5wriG47ZQJX01kkvm3Op-vYpK3tTEUBn89w/exec';
+const URL_CSV = 'https://script.google.com/macros/s/AKfycbzJl3LOYfAWzagu-qGWXrfQX5xEoeCFMx54TUH8s3EBu3h1mPFxdjLDAo1eUlKP6V5WMw/exec';
 // Atualização automática (minutos)
 const AUTO_MIN = 5;
 // Modo TV: tempo por tela (segundos), rotação automática entre Produção e Backlog e rolagem da lista
@@ -51,7 +51,7 @@ let SCRIPT_URL = URL_PADRAO;
 const urlValida = u => u.startsWith('https://script.google.com/macros/s/') && u.endsWith('/exec');
 
 const state = Object.assign(
-  { periodo: 'hoje', ini: '', fim: '', cal: { dias: [], meses: [] }, ordem: 'sup' },
+  { periodo: 'hoje', ini: '', fim: '', cal: { dias: [], meses: [] }, ordem: 'sup', escala: '' },
   store.get(K.filtros, {})
 );
 state.busca = '';
@@ -147,6 +147,7 @@ function definirUsuario(u) {
   if (!u) return;
   const ant = state.user, mudou = !ant || ant.nome !== u.nome || ant.papel !== u.papel;
   state.user = u;
+  $('acessBtn').hidden = !(u.papel === 'supervisor' || u.papel === 'coordenador');   // quem está logado: só supervisor e coordenador
   ['p-tec', 'p-sup', 'p-coord'].forEach(c => document.body.classList.remove(c));
   document.body.classList.add({ tecnico: 'p-tec', supervisor: 'p-sup', coordenador: 'p-coord' }[u.papel] || 'p-sup');
   if (!mudou) return;
@@ -188,6 +189,7 @@ async function resolverUrl() {
 function qPeriodo(q) {
   q.set('periodo', state.periodo);
   if (state.periodo === 'custom' && state.ini && state.fim) { q.set('ini', state.ini); q.set('fim', state.fim); }
+  if (state.escala) q.set('escala', state.escala);                 // filtro de escala / extra (data aaaa-mm-dd)
   if (state.periodo === 'cal') { q.set('dias', state.cal.dias.join(',')); q.set('meses', state.cal.meses.join(',')); }
   return q;
 }
@@ -242,7 +244,7 @@ const nPlay = t => t.playN != null ? t.playN : (t.playItens || []).length;
 const LC = 'dp_c1:';
 const hash36 = s => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; return h.toString(36); };
 const lcUser = () => nk(state.cred ? state.cred.login : '');
-const lcSig = () => hash36(JSON.stringify([state.periodo, state.ini, state.fim, state.cal]));
+const lcSig = () => hash36(JSON.stringify([state.periodo, state.ini, state.fim, state.cal, state.escala]));
 const lcKeyProd = () => LC + lcUser() + ':prod:' + lcSig();
 const lcKeyBlk = () => LC + lcUser() + ':blk';
 function lcLer(k, ehProducao) {
@@ -402,7 +404,7 @@ const ORD_VALIDAS = COL_ORD.concat(['sup', 'atencao', 'reab']);
 const dirPadrao = k => (k === 'nome' || k === 'play') ? 'asc' : 'desc';
 const dirAtual = () => state.dir || dirPadrao(state.ordem);
 if (ORD_VALIDAS.indexOf(state.ordem) < 0) state.ordem = 'sup';
-function salvarFiltros() { store.set(K.filtros, { periodo: state.periodo, ini: state.ini, fim: state.fim, cal: state.cal, ordem: state.ordem, dir: state.dir }); }
+function salvarFiltros() { store.set(K.filtros, { periodo: state.periodo, ini: state.ini, fim: state.fim, cal: state.cal, ordem: state.ordem, dir: state.dir, escala: state.escala }); }
 function ordenarPor(k) {
   if (state.ordem === k) state.dir = dirAtual() === 'asc' ? 'desc' : 'asc';     // clicar de novo inverte
   else { state.ordem = k; state.dir = ''; }
@@ -616,6 +618,17 @@ function abrirConcluidos(t, opener) {
 }
 $('pFechar').onclick = () => $('dlgPlay').close();
 
+/* ----- filtro de escala / extra (aba Escala_FDS) ----- */
+const DIA_SEM = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+const rotEsc = iso => { const [y, m, d] = iso.split('-').map(Number); return DIA_SEM[new Date(Date.UTC(y, m - 1, d)).getUTCDay()] + ' ' + pad2(d) + '/' + pad2(m); };
+function escOpcoes() {
+  const w = $('fEscWrap'), sel = $('fEsc'), l = state.dados && state.dados.escalaDatas;
+  w.hidden = ehTec() || !Array.isArray(l) || !l.length;
+  sel.innerHTML = ''; sel.appendChild(new Option('Todos os técnicos', ''));
+  (l || []).forEach(x => sel.appendChild(new Option(rotEsc(x.iso) + (x.escala ? ' · ' + x.nEscala + ' escala' : ' · dia comum') + ' · ' + x.nExtra + ' extra', x.iso)));
+  sel.value = state.escala && (l || []).some(x => x.iso === state.escala) ? state.escala : '';
+}
+
 /* ----- faixa de contexto ----- */
 const NOME_P = { tudo: 'todo o período', ontem: 'ontem', ultimo: 'último dia com dados', '7d': 'últimos 7 dias', mes: 'mês atual', custom: 'período personalizado', cal: 'produção mensal' };
 function mostrarModo() {
@@ -627,7 +640,8 @@ function mostrarModo() {
   m.appendChild(el('span', 'dot'));
   const mi = el('span', 'mi'); mi.innerHTML = ic('calcheck'); m.appendChild(mi);
   const t = el('div', 'mt');
-  t.appendChild(el('b', '', hoje ? 'Produção de hoje' : 'Filtro: ' + (p === 'cal' && state.dados && state.dados.periodo ? state.dados.periodo.rotulo : (NOME_P[p] || p))));
+  const escI = state.escala && state.dados && state.dados.escala ? state.dados.escala : null;
+  t.appendChild(el('b', '', escI ? 'Escala de ' + rotEsc(escI.data) + ' · ' + escI.nEscala + ' em escala · ' + escI.nExtra + ' extra' : hoje ? 'Produção de hoje' : 'Filtro: ' + (p === 'cal' && state.dados && state.dados.periodo ? state.dados.periodo.rotulo : (NOME_P[p] || p))));
   const dd = state.dados || {};
   const up = el('span', 'up');
   up.appendChild(document.createTextNode('Atualizado em '));
@@ -636,7 +650,7 @@ function mostrarModo() {
   m.appendChild(t);
   if (hoje) { const v = el('span', 'live'); v.innerHTML = ic('refresh') + (idade != null && !isNaN(idade) ? 'há ' + (idade < 1 ? '<1' : idade < 60 ? Math.floor(idade) : Math.floor(idade / 60) + 'h' + String(Math.floor(idade % 60)).padStart(2, '0')) + (idade < 60 ? ' min' : '') : 'Ao vivo'); m.appendChild(v); return; }
   const b = el('button', '', 'Voltar para hoje'); b.type = 'button';
-  b.onclick = () => { state.periodo = 'hoje'; state.ini = ''; state.fim = ''; salvarFiltros(); carregar(); };
+  b.onclick = () => { state.periodo = 'hoje'; state.ini = ''; state.fim = ''; state.escala = ''; salvarFiltros(); carregar(); };
   m.appendChild(b);
 }
 
@@ -678,7 +692,7 @@ function render() {
   const rows = $('rows'); rows.innerHTML = '';
   if (!lista.length) {
     const filtrado = state.busca || state.sups.length;
-    const v = el('div', 'vazio', filtrado ? 'Nenhum técnico encontrado.' : 'Nenhum técnico cadastrado.');
+    const v = el('div', 'vazio', filtrado ? 'Nenhum técnico encontrado.' : state.escala ? 'Ninguém de escala ou extra nesta data.' : 'Nenhum técnico cadastrado.');
     if (filtrado) { const b = el('button', 'btn vz-btn', 'Limpar busca e filtros'); b.type = 'button'; b.onclick = limparBuscaFiltros; v.appendChild(b); }
     rows.appendChild(v);
   }
@@ -717,6 +731,10 @@ function render() {
     if (medal.has(t)) { const m = el('span', 'medal m' + medal.get(t), String(medal.get(t))); m.title = MEDALHA_N[medal.get(t)]; m.setAttribute('role', 'img'); m.setAttribute('aria-label', MEDALHA_N[medal.get(t)]); nb.appendChild(m); }
     nb.appendChild(document.createTextNode(tc(t.nome)));
     n.appendChild(nb);
+    if (t.escTipo) {                              // filtro de escala: distingue ESCALA de EXTRA
+      const eb = el('span', 'esc-bdg ' + t.escTipo, t.escTipo === 'extra' ? 'EXTRA' : 'ESCALA'); eb.title = t.escCod || '';
+      n.appendChild(eb);
+    }
     if (t.prioPend > 0) {                         // prioridades que ainda estão na agenda do técnico
       const pb = el('span', 'pr-bdg'); pb.innerHTML = ic('star'); pb.appendChild(document.createTextNode(String(t.prioPend)));
       pb.title = t.prioPend + (t.prioPend === 1 ? ' prioridade pendente na agenda' : ' prioridades pendentes na agenda');
@@ -782,6 +800,7 @@ function render() {
   ];
   const frT = fracExpediente();
   if (frT) itens.push(['Projeção do dia (estimativa linear)', fmtProj(s.concl / frT)]);
+  if (d.escala && d.escala.ok) itens.push(['Em escala (' + rotEsc(d.escala.data) + ')', lista.filter(t => t.escTipo === 'escala').length], ['Em extra', lista.filter(t => t.escTipo === 'extra').length]);
   if (d.prioOk) {                                // prioridades (aba Prioridades): pendentes na agenda e atendidas no período
     itens.push(['Prioridades pendentes (agenda)', lista.reduce((a, t) => a + (t.prioPend || 0), 0)]);
     itens.push(['Prioridades atendidas (período)', lista.reduce((a, t) => a + (t.prioAtend || 0), 0)]);
@@ -928,6 +947,7 @@ function abrirTecnico(t, opener) {
   ch.className = 'chip ' + t.nivel;
   ch.textContent = t.nivel === 'acima' ? 'Acima' : t.nivel === 'normal' ? 'Normal' : t.nivel === 'obs' ? 'Observação' : 'Atenção';
   const dl = $('tDet'); dl.innerHTML = '';
+  if (t.escTipo) { dl.appendChild(el('dt', '', 'Escala')); dl.appendChild(el('dd', '', (t.escTipo === 'extra' ? 'Extra' : 'Escala') + (t.escCod ? ' (' + t.escCod + ')' : ''))); }
   [['Concluídos', t.concl], ['Instalação', t.inst], ['Pendência', t.pend], ['Prest. de contas', t.outros],
    ['Reab. Instalação', t.reabInst], ['Reab. Pendência', t.reabPend], ['Reab. prest. contas', t.reabOutros],
    ['Cancelados', t.cancel], ['Concluídos em atraso', t.atraso],
@@ -1145,6 +1165,7 @@ function abrirFiltro() {
   cal.y = HY; cal.m = HM; cal.aberto = state.periodo === 'cal'; calDesenhar();
   $('fSupWrap').hidden = ehTec() || papel() === 'controlador';   // controlador só tem a equipe dele
   fSupSel = new Set(state.sups); mselDesenhar($('fSupBox'), listaSups(), fSupSel);
+  escOpcoes();
   $('fOrd').value = state.ordem;
   abrirDlg($('dlgFiltro'));
 }
@@ -1152,19 +1173,24 @@ $('filtroBtn').onclick = abrirFiltro;
 $('fFechar').onclick = () => $('dlgFiltro').close();
 $('fPeriodo').onchange = () => { $('fCustom').hidden = $('fPeriodo').value !== 'custom'; if ($('fPeriodo').value === 'cal' && !cal.aberto) { cal.aberto = true; calDesenhar(); } };
 $('fLimpar').onclick = () => {
-  $('fPeriodo').value = 'hoje'; $('fOrd').value = 'sup';
+  $('fPeriodo').value = 'hoje'; $('fOrd').value = 'sup'; $('fEsc').value = '';
   fSupSel = new Set(supsPadrao()); mselDesenhar($('fSupBox'), listaSups(), fSupSel);
   $('fCustom').hidden = true; $('fIni').value = ''; $('fFim').value = '';
   cal.dias.clear(); cal.meses.clear(); cal.aberto = false; calDesenhar();
 };
 $('fForm').addEventListener('submit', () => {
-  const sig = () => state.periodo + state.ini + state.fim + (state.periodo === 'cal' ? JSON.stringify(state.cal) : '');
-  const antes = sig();
+  const sig = () => state.periodo + state.ini + state.fim + state.escala + (state.periodo === 'cal' ? JSON.stringify(state.cal) : '');
+  const antes = sig(), perAntes = state.periodo, escAntes = state.escala;
   state.periodo = $('fPeriodo').value;
   state.ini = $('fIni').value; state.fim = $('fFim').value;
   if (state.periodo === 'custom' && (!state.ini || !state.fim)) state.periodo = 'hoje';
   state.cal = calSerial();
   if (state.periodo === 'cal' && calVazio()) state.periodo = 'hoje';
+  // escala: escolher uma data leva a produção para esse dia; mudar só o período (com a mesma data) sai do filtro
+  const esc = $('fEsc').value;
+  if (esc && !(esc === escAntes && state.periodo !== perAntes)) {
+    state.escala = esc; state.periodo = esc === dataHoje() ? 'hoje' : 'cal'; state.cal = { dias: esc === dataHoje() ? [] : [esc], meses: [] }; state.ini = state.fim = '';
+  } else state.escala = '';
   if (!ehTec()) { state.sups = Array.from(fSupSel); store.set(supKey(), state.sups); }
   if (state.ordem !== $('fOrd').value) state.dir = '';
   state.ordem = $('fOrd').value;
@@ -1245,6 +1271,7 @@ $('lgForm').addEventListener('submit', async e => {
   } finally { loginAtualizar(); }
 });
 function sair(msg) {
+  if (state.cred && !msg) { try { fetch(SCRIPT_URL + '?' + new URLSearchParams({ acao: 'sair', login: state.cred.login, senha: state.cred.senha, codigo: state.codigo || '' }).toString(), { keepalive: true, cache: 'no-store' }).catch(() => {}); } catch (_) {} }   // marca offline na hora
   if (state.cred) lcLimpa(state.cred.login);          // apaga os dados guardados deste usuário neste aparelho
   state.dadosEm = 0; state.doCache = false; state.dadosSig = ''; bl.dadosEm = 0; bl.doCache = false; mostrarFrescor(); blFrescor();
   try { sessionStorage.removeItem(K.sess); } catch (_) {}
@@ -1260,6 +1287,56 @@ function sair(msg) {
   window.scrollTo(0, 0);
 }
 $('sairBtn').onclick = () => sair();
+
+
+/* ============ ACESSOS: quem está logado (supervisor e coordenador) e batimento de presença ============ */
+// a cada 90 s, com a página visível, avisa o servidor que o usuário continua com a tela aberta
+function batimento() {
+  if (!state.cred || document.hidden || document.body.classList.contains('sem-login')) return;
+  pedir(SCRIPT_URL + '?' + qAuth(new URLSearchParams({ acao: 'ping' })).toString(), 15000).catch(() => {});
+}
+setInterval(batimento, 90000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) batimento(); });
+const ac = { filtro: 'todos', dados: null, timer: null };
+function acQuando(ms, agora) {
+  const m = Math.max(0, (agora - ms) / 60000);
+  const p = {}; new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Fortaleza', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(ms)).forEach(x => { p[x.type] = x.value; });
+  return 'há ' + fmtIdade(m) + ' · ' + p.day + '/' + p.month + ' ' + p.hour + ':' + p.minute;
+}
+function acDesenhar() {
+  const d = ac.dados, box = $('acLista'); if (!d) return;
+  const l = d.itens.slice().sort((a, b) => (b.online - a.online) || ((b.ultimo || 0) - (a.ultimo || 0)) || a.nome.localeCompare(b.nome, 'pt-BR'));
+  const on = l.filter(x => x.online).length;
+  $('acSub').textContent = on + ' online agora · ' + l.length + ' com login · atualiza sozinho a cada 30 s';
+  const defs = [['todos', 'Todos', l.length], ['on', 'Online', on], ['off', 'Offline', l.length - on], ['tecnico', 'Técnicos', l.filter(x => x.papel === 'tecnico').length], ['controlador', 'Controladores', l.filter(x => x.papel === 'controlador').length]];
+  const cb = $('acChips'); cb.innerHTML = '';
+  defs.forEach(([k, n, c]) => {
+    const b = el('button', 'chp' + (ac.filtro === k ? ' on' : '')); b.type = 'button'; b.setAttribute('aria-pressed', String(ac.filtro === k));
+    b.appendChild(document.createTextNode(n)); b.appendChild(el('b', '', String(c))); b.onclick = () => { ac.filtro = k; acDesenhar(); }; cb.appendChild(b);
+  });
+  const f = l.filter(x => ac.filtro === 'todos' || (ac.filtro === 'on' ? x.online : ac.filtro === 'off' ? !x.online : x.papel === ac.filtro));
+  box.innerHTML = '';
+  if (!f.length) { const v = el('div', 'pvazio'); v.innerHTML = ic('users'); v.appendChild(el('b', '', 'Ninguém neste filtro')); box.appendChild(v); return; }
+  f.forEach(x => {
+    const r = el('div', 'acrow' + (x.online ? ' on' : ''));
+    r.appendChild(el('i', 'acdot'));
+    const t = el('div', 'actxt'); t.appendChild(el('b', '', tc(x.nome)));
+    t.appendChild(el('span', '', (x.papel === 'controlador' ? 'Controlador' : 'Técnico') + (x.equipe ? ' · Equipe ' + tc(x.equipe) : '')));
+    r.appendChild(t);
+    const q = el('span', 'acq', x.online ? 'Online agora' : x.ultimo ? 'Último acesso ' + acQuando(x.ultimo, d.agoraMs) : 'Nunca acessou');
+    r.appendChild(q); box.appendChild(r);
+  });
+}
+async function acCarregar() {
+  try { ac.dados = await buscarServidor(qAuth(new URLSearchParams({ acao: 'acessos' })), 20000); acDesenhar(); }
+  catch (e) { if (!ac.dados) { $('acLista').innerHTML = ''; $('acLista').appendChild(el('div', 'perro', msgErro(e))); } }
+}
+$('acessBtn').onclick = () => {
+  ac.filtro = 'todos'; ac.dados = null; $('acLista').innerHTML = ''; $('acSub').textContent = 'Carregando...';
+  abrirDlg($('dlgAcess')); acCarregar();
+  clearInterval(ac.timer); ac.timer = setInterval(() => { if ($('dlgAcess').open) acCarregar(); else clearInterval(ac.timer); }, 30000);
+};
+$('acFechar').onclick = () => $('dlgAcess').close();
 
 /* ============ BACKLOG (aba Base_Abertos) ============ */
 const BL_K = 'dp_blk_v1';
