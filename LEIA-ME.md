@@ -66,3 +66,32 @@ A configuração (`URL_PADRAO`, `URL_CSV`, `AUTO_MIN`) está no topo do `app.js`
 4. Selo "Em atraso", Concluídos hoje, "Por técnico", "Vencem em 4h", exportar CSV, tema claro, barra inferior no celular, Modo TV.
 
 Fora deste roteiro, para depois: segurança (POST ou token, hash de senha, limite de tentativas, remover `LOGIN_TESTE`, filtro de equipe no servidor) e PWA.
+
+
+---
+
+# Novidades desta versão (pedido de 21/11/2026)
+
+| Pedido | Resultado | Onde |
+|---|---|---|
+| Selo "Em atraso" ao lado do status (supervisor e técnico) | **Já estava nesta versão** (Etapa 1) e foi conferido: cartões do Play/agenda, lista e detalhe da OS do Backlog. Não foi alterado. | `seloAtraso()` |
+| "Concluídos hoje" clicável no Backlog | **Já estava** (Etapa 2) e foi conferido. Não foi alterado. | `abrirConcluidosHoje()` |
+| Atrasadas em Play x fora do Play (Backlog) | Dois chips novos: **Atrasadas em play** e **Atrasadas fora do play**, com contagem e filtro (respeitam empresa, supervisor e busca). | `blChips()`, `BLP.sit` |
+| Prioridades | Nova aba **Prioridades** lida pelo `Code.gs`. OS marcada com selo violeta "Prioridade" no Backlog, no Play/agenda do técnico e nos concluídos; estrela com a quantidade na linha do técnico; bloco **Prioridades** no Backlog (pendentes, em atraso, atendidas hoje, 30 dias, atendidas por dia nos últimos 7 dias, lista); e linhas em "Mais detalhes" e no detalhe do técnico. | `lerPrioridades`, `situacaoPrioridades`, `blPrio()` |
+| Aba Controlador | Novo perfil **controlador**: vê só a equipe do supervisor indicado (filtrado no servidor) e o **backlog geral**. | `autenticar`, `montar` |
+| Detalhamento do técnico e do supervisor | Detalhe do técnico: bloco **Metas** com todas as metas (atingida ou quanto falta), barra, faixa atual e próxima; play, atrasadas e prioridades da agenda. "Mais detalhes": quantos técnicos em cada meta. | `blocoMetas()` |
+
+## Regras das prioridades
+- Cada linha da aba Prioridades é um pedido. O protocolo (só os dígitos) é cruzado com `protocolo_novo` (Base_Abertos) e `Código` (encerramentos). Mais de um pedido para a mesma OS conta como **uma** prioridade.
+- **Pendente**: a OS ainda está na Base_Abertos. **Atendida**: tem ENCERRAMENTO no dia do primeiro pedido ou depois (conta no dia do encerramento). **Cancelada**: só tem CANCELADO. **Sem registro**: não está em nenhuma base (ex.: `#N/A`).
+- Cabeçalho: a linha com "SOLICITANTE" (nas 15 primeiras linhas); a coluna do protocolo pode ficar sem título. "DT REQUIS." pode estar na linha de cima.
+- **Atenção:** o histórico vem da própria aba. Se pedidos encerrados forem apagados dela, deixam de ser contados como atendidos.
+- A tela mostra atendidas dos últimos 30 dias. Sem a aba Prioridades, nada some: só não aparecem as marcas.
+
+## Aba Controlador
+Colunas: Controlador | Supervisor | Login | Senha | Ativo. O nome em "Supervisor" precisa ser igual ao da aba Técnicos (acento e maiúsculas não importam). Quem está sem login/senha não consegue entrar.
+
+## Para publicar
+1. Cole o novo `Code.gs` e publique **nova versão** da implantação. 2. Suba `index.html`, `styles.css` e `app.js` juntos. 3. Rode `testarPrioridades` e `testarControlador` no editor. 4. `limparCache()` se quiser ver mudanças de planilha na hora.
+
+Testado com simulador (dados fictícios + os pedidos reais da planilha) e navegador automatizado. **Não testado no Apps Script real nem com a sua planilha completa.**

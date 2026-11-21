@@ -1,8 +1,8 @@
 /* ============ CONFIGURAÇÃO ============ */
 // URL do app da web (termina em /exec), gerada ao implantar o Apps Script
-const URL_PADRAO = 'https://script.google.com/macros/s/AKfycbzjGvrEjdWzpigLFrAdKCvhOv2DbqUrVWyoFYhtYs-aHTH90EK7y6cYBeSox3gpvFaymw/exec';
+const URL_PADRAO = 'https://script.google.com/macros/s/AKfycbwk7bwgKvj5qjKmn4h_7nJU0lL4Ta_AYzE5wriG47ZQJX01kkvm3Op-vYpK3tTEUBn89w/exec';
 // Opcional: link CSV da aba "URL" publicada na web (assim você troca a URL só na planilha)
-const URL_CSV = 'https://script.google.com/macros/s/AKfycbzjGvrEjdWzpigLFrAdKCvhOv2DbqUrVWyoFYhtYs-aHTH90EK7y6cYBeSox3gpvFaymw/exec';
+const URL_CSV = 'https://script.google.com/macros/s/AKfycbwk7bwgKvj5qjKmn4h_7nJU0lL4Ta_AYzE5wriG47ZQJX01kkvm3Op-vYpK3tTEUBn89w/exec';
 // Atualização automática (minutos)
 const AUTO_MIN = 5;
 // Modo TV: tempo por tela (segundos), rotação automática entre Produção e Backlog e rolagem da lista
@@ -134,8 +134,8 @@ const nk = s => semAcento(s).trim().replace(/\s+/g, ' ');
 const MIN = new Set(['de', 'da', 'do', 'das', 'dos', 'e']);
 const papel = () => (state.user && state.user.papel) || '';
 const ehTec = () => papel() === 'tecnico';
-const PAPEL_N = { tecnico: 'Técnico', supervisor: 'Supervisor', coordenador: 'Coordenador' };
-const supsPadrao = () => papel() === 'supervisor' && state.user.supervisor ? [nk(state.user.supervisor)] : [];
+const PAPEL_N = { tecnico: 'Técnico', supervisor: 'Supervisor', controlador: 'Controlador', coordenador: 'Coordenador' };
+const supsPadrao = () => (papel() === 'supervisor' || papel() === 'controlador') && state.user.supervisor ? [nk(state.user.supervisor)] : [];   // controlador: a equipe do supervisor dele
 const mesmoSet = (a, b) => a.length === b.length && a.slice().sort().join('|') === b.slice().sort().join('|');
 const supKey = () => 'dp_sups_' + nk(state.cred ? state.cred.login : '');
 // nomes bonitos a partir das chaves selecionadas
@@ -523,18 +523,33 @@ function seloAtraso(base) {
   s.appendChild(document.createTextNode('Em atraso'));
   return s;
 }
+// Selo violeta "Prioridade" (OS que está na aba Prioridades). base = 'pchip' (cartões) ou 'tag' (Backlog)
+function seloPrio(base) {
+  const s = el('span', base + ' prio selo-prio');
+  s.title = 'OS com pedido de prioridade';
+  s.innerHTML = ic('star');
+  s.appendChild(document.createTextNode('Prioridade'));
+  return s;
+}
+// texto curto do pedido: justificativa, quem pediu e setor
+function prioResumo(pr) {
+  if (!pr) return '';
+  return [pr.jus, pr.sol ? 'pedido por ' + pr.sol : '', pr.set ? '(' + pr.set + ')' : ''].filter(Boolean).join(' · ');
+}
 function cartaoOS(p, rotulo, extra) {
-  const card = el('div', 'pcard' + (extra ? ' ' + extra : ''));
+  const card = el('div', 'pcard' + (extra ? ' ' + extra : '') + (p.prio ? ' prio' : ''));
   // cabeçalho: situação (Em execução / Agendado / Concluído) + empresa + status da OS (igual ao Backlog)
   const hd = el('div', 'pc-head');
   const lv = el('div', 'live'); lv.appendChild(el('i')); lv.appendChild(document.createTextNode(rotulo)); hd.appendChild(lv);
   if (p.emp) { const e = el('span', 'pchip', p.emp); e.title = 'Empresa'; e.style.setProperty('--h', empH(p.emp)); hd.appendChild(e); }
   if (p.status) { const st = el('span', 'pchip', p.status); st.title = 'Status da OS'; st.style.setProperty('--h', hueDe(p.status, ST_H)); hd.appendChild(st); }
   if (p.atr) hd.appendChild(seloAtraso('pchip'));
+  if (p.prio) hd.appendChild(seloPrio('pchip'));
   card.appendChild(hd);
   [['Tipo', p.tipo], ['Protocolo', p.protocolo], ['Cliente', p.cliente], ['Cidade', p.cidade], ['Bairro', p.bairro]].concat(p.tecnico ? [['Técnico', tc(p.tecnico)]] : []).forEach(([k, v]) => {
     const f = el('div', 'pf'); f.appendChild(el('span', '', k)); f.appendChild(el('b', '', v || '—')); card.appendChild(f);
   });
+  if (p.prio && p.pr) { const f = el('div', 'pf'); f.appendChild(el('span', '', 'Prioridade')); f.appendChild(el('b', '', prioResumo(p.pr) || 'Pedido de prioridade')); card.appendChild(f); }
   return card;
 }
 function abrirPlay(t) {
@@ -543,12 +558,13 @@ function abrirPlay(t) {
   $('pNome').textContent = tc(t.nome);
   const desenhar = (pl, ag) => {
     box.innerHTML = '';
+    const nPr = pl.concat(ag).filter(x => x.prio).length, txtPr = nPr ? ' · Prioridades: ' + nPr : '';
     if (t.play === 'play') {
-      $('pSub').textContent = sup + 'Em execução: ' + pl.length + ' · Agendadas: ' + ag.length;
+      $('pSub').textContent = sup + 'Em execução: ' + pl.length + ' · Agendadas: ' + ag.length + txtPr;
       pl.forEach(p => box.appendChild(cartaoOS(p, 'Em execução')));
       ag.forEach(p => box.appendChild(cartaoOS(p, 'Agendado', 'ag')));
     } else if (t.play === 'parado') {
-      $('pSub').textContent = sup + 'Sem play · ' + ag.length + (ag.length === 1 ? ' agendado' : ' agendados');
+      $('pSub').textContent = sup + 'Sem play · ' + ag.length + (ag.length === 1 ? ' agendado' : ' agendados') + txtPr;
       ag.forEach(p => box.appendChild(cartaoOS(p, 'Agendado', 'ag')));
     } else if (t.play === 'fim') {
       $('pSub').textContent = sup + 'Concluídos: ' + (t.concl || 0);
@@ -583,7 +599,8 @@ function abrirConcluidos(t, opener) {
   const n = Number(t.concl) || 0;
   const desenhar = l => {
     box.innerHTML = '';
-    $('pSub').textContent = sup + 'Concluídos: ' + n + (l.length < n ? ' (mostrando ' + l.length + ')' : '');
+    const nPr = l.filter(x => x.prio).length;
+    $('pSub').textContent = sup + 'Concluídos: ' + n + (l.length < n ? ' (mostrando ' + l.length + ')' : '') + (nPr ? ' · Prioridades: ' + nPr : '');
     if (!l.length) {
       const v = el('div', 'pvazio'); v.innerHTML = ic('check');
       v.appendChild(el('b', '', 'Nenhuma OS concluída'));
@@ -642,7 +659,8 @@ function render() {
     const existentes = (d.supervisores || []).map(nk);
     if (existentes.length) state.sups = state.sups.filter(k => existentes.includes(k));
     let sub = PAPEL_N[state.user.papel] + ': ' + tc(state.user.nome);
-    if (!ehTec()) {
+    if (papel() === 'controlador') sub += state.user.supervisor ? ' · Equipe ' + tc(state.user.supervisor) : '';
+    else if (!ehTec()) {
       if (!state.sups.length) sub += ' · Todas as equipes';
       else if (!mesmoSet(state.sups, supsPadrao())) sub += ' · ' + supResumo(state.sups, d.supervisores);
     }
@@ -699,6 +717,12 @@ function render() {
     if (medal.has(t)) { const m = el('span', 'medal m' + medal.get(t), String(medal.get(t))); m.title = MEDALHA_N[medal.get(t)]; m.setAttribute('role', 'img'); m.setAttribute('aria-label', MEDALHA_N[medal.get(t)]); nb.appendChild(m); }
     nb.appendChild(document.createTextNode(tc(t.nome)));
     n.appendChild(nb);
+    if (t.prioPend > 0) {                         // prioridades que ainda estão na agenda do técnico
+      const pb = el('span', 'pr-bdg'); pb.innerHTML = ic('star'); pb.appendChild(document.createTextNode(String(t.prioPend)));
+      pb.title = t.prioPend + (t.prioPend === 1 ? ' prioridade pendente na agenda' : ' prioridades pendentes na agenda');
+      pb.setAttribute('role', 'img'); pb.setAttribute('aria-label', pb.title);
+      n.appendChild(pb);
+    }
     if (t.semBase) n.appendChild(el('small', '', 'nome não aparece na base'));
     r.appendChild(n);
     const cv = el('div', 'chev'); cv.setAttribute('aria-hidden', 'true'); cv.innerHTML = ic('chev'); r.appendChild(cv);
@@ -758,12 +782,28 @@ function render() {
   ];
   const frT = fracExpediente();
   if (frT) itens.push(['Projeção do dia (estimativa linear)', fmtProj(s.concl / frT)]);
+  if (d.prioOk) {                                // prioridades (aba Prioridades): pendentes na agenda e atendidas no período
+    itens.push(['Prioridades pendentes (agenda)', lista.reduce((a, t) => a + (t.prioPend || 0), 0)]);
+    itens.push(['Prioridades atendidas (período)', lista.reduce((a, t) => a + (t.prioAtend || 0), 0)]);
+    const porDia = {}; lista.forEach(t => (t.dias || []).forEach(x => { if (x.prio) porDia[x.iso] = (porDia[x.iso] || 0) + x.prio; }));
+    const ks = Object.keys(porDia).sort().slice(-7);
+    if (ks.length > 1) itens.push(['Prioridades atendidas por dia', ks.map(k => k.slice(8, 10) + '/' + k.slice(5, 7) + ': ' + porDia[k]).join(' · ')]);
+  }
+  if (temMeta) {                                 // quantos técnicos estão em cada meta (pela média por dia produzido)
+    const niv = [0, 0, 0, 0, 0]; let semMeta = 0;
+    lista.filter(t => t.ativo !== false).forEach(t => { if (Array.isArray(t.metasTipo)) niv[faixaTec(t)]++; else semMeta++; });
+    itens.push(['Técnicos abaixo da Meta I', niv[0]], ['Técnicos na Meta I', niv[1]], ['Técnicos na Meta II', niv[2]], ['Técnicos na Meta III', niv[3]], ['Técnicos na Meta IV', niv[4]]);
+    if (semMeta) itens.push(['Técnicos sem meta definida (Tipo)', semMeta]);
+  }
   itens.forEach(([k, v]) => { const x = el('div'); x.appendChild(el('span', '', k)); x.appendChild(el('b', '', String(v))); dg.appendChild(x); });
 
   $('filtroBtn').classList.toggle('on', state.periodo !== 'hoje' || !mesmoSet(state.sups, supsPadrao()) || state.ordem !== 'sup');
   pintarCabecalho();
   comparativoKpi(lista);
 }
+
+// quantas metas (0 a 4) o técnico alcançou, pela média por dia produzido (mesma conta do servidor)
+const faixaTec = t => t.diasMeta ? t.metasTipo.map(Number).filter(m => (Number(t.media) || 0) + 1e-9 >= m).length : 0;
 
 /* ----- comparativo no KPI Concluídos e projeção do dia (Etapa 13) ----- */
 function comparativoKpi(lista) {
@@ -844,6 +884,43 @@ function graficoDias(t, largura) {
 
 /* ----- detalhe do técnico ----- */
 const ROMANOS = ['I', 'II', 'III', 'IV'];
+// Bloco "Metas": mostra TODAS as metas (atingidas ou não), quanto falta para cada uma e a barra de progresso
+function blocoMetas(t) {
+  const d = state.dados || {}, w = el('div', 'mt'), conc = Number(t.concl) || 0;
+  w.appendChild(el('h3', '', 'Metas'));
+  const diario = state.periodo === 'hoje' || state.periodo === 'ontem' || !!(d.periodo && d.periodo.ini && d.periodo.ini === d.periodo.fim);
+  let alvos = [];                                 // [{ n: nome, v: texto da meta, alvo: concluídos necessários }]
+  let resumo = '';
+  if (Array.isArray(t.metasTipo) && t.metasTipo.length) {
+    const metas = t.metasTipo.map(Number), dias = Math.max(1, t.diasMeta || 0), media = Number(t.media) || 0;
+    metas.forEach((m, i) => alvos.push({ n: 'Meta ' + (ROMANOS[i] || i + 1), v: fmtN2(m) + '/dia' + (dias > 1 ? ' · ' + fmtN2(m * dias) + ' no período' : ''), alvo: m * dias }));
+    const f = faixaTec(t);
+    resumo = 'Faixa atual: ' + (f ? 'Meta ' + ROMANOS[f - 1] : 'abaixo da Meta I') + ' · Média por dia produzido: ' + fmtN2(media) +
+      (f < metas.length ? ' · Próxima: Meta ' + ROMANOS[f] + ' (faltam ' + Math.max(0, Math.ceil(metas[f] * dias - conc - 1e-9)) + ')' : ' · Todas as metas atingidas');
+  } else if (diario) {                            // sem Tipo / meta: regra de cores do dia
+    alvos = [{ n: 'Observação', v: '3 concluídas', alvo: 3 }, { n: 'Normal', v: '4 concluídas', alvo: 4 }, { n: 'Acima', v: '6 concluídas', alvo: 6 }];
+    resumo = 'Sem Tipo na aba Metas: vale a régua do dia (até 2 atenção · 3 observação · 4 e 5 normal · acima de 5 acima)';
+  } else if (d.metas) {
+    alvos = [{ n: 'Observação', v: fmtN2(Number(d.metas.obs) || 0) + ' no período', alvo: Number(d.metas.obs) || 0 }, { n: 'Normal', v: fmtN2(Number(d.metas.normal) || 0) + ' no período', alvo: Number(d.metas.normal) || 0 }];
+    resumo = 'Sem Tipo na aba Metas: vale a meta Normal / Observação do período (aba Config)';
+  }
+  if (!alvos.length) return null;
+  // barra: preenchimento = concluídos; marcas = cada meta
+  const topo = Math.max(conc, alvos[alvos.length - 1].alvo) * 1.08 || 1;
+  const bar = el('div', 'mt-bar'); bar.setAttribute('role', 'img');
+  bar.setAttribute('aria-label', conc + ' concluídos. ' + alvos.map(a => a.n + ': ' + fmtN2(a.alvo)).join(', ') + '.');
+  const fill = el('i', 'mt-fill ' + (t.nivel || '')); fill.style.width = Math.min(100, conc / topo * 100).toFixed(1) + '%'; bar.appendChild(fill);
+  alvos.forEach((a, i) => { const k = el('u', 'mt-tick'); k.style.left = Math.min(100, a.alvo / topo * 100).toFixed(1) + '%'; k.title = a.n + ': ' + fmtN2(a.alvo); k.appendChild(el('s', '', alvos.length === 4 ? ROMANOS[i] : a.n.slice(0, 3))); bar.appendChild(k); });
+  w.appendChild(bar);
+  w.appendChild(el('p', 'mt-res', resumo));
+  alvos.forEach(a => {
+    const falta = Math.max(0, Math.ceil(a.alvo - conc - 1e-9)), r = el('div', 'mt-row' + (falta === 0 ? ' ok' : ''));
+    r.appendChild(el('span', 'mt-n', a.n)); r.appendChild(el('span', 'mt-v', a.v));
+    r.appendChild(el('b', 'mt-s', falta === 0 ? '✔ Atingida' : 'Faltam ' + falta));
+    w.appendChild(r);
+  });
+  return w;
+}
 function abrirTecnico(t, opener) {
   $('tNome').textContent = tc(t.nome);
   $('tSup').textContent = t.supervisor ? 'Supervisor: ' + tc(t.supervisor) : '';
@@ -856,10 +933,17 @@ function abrirTecnico(t, opener) {
    ['Cancelados', t.cancel], ['Concluídos em atraso', t.atraso],
    ['Na agenda (abertos)', t.play === 'na' ? '-' : (t.agenda || 0)]]
     .forEach(([k, v]) => { dl.appendChild(el('dt', '', k)); dl.appendChild(el('dd', '', String(v))); });
+  if (t.play !== 'na') {                          // detalhe da agenda: play, atrasadas e prioridades
+    const extra = [['Em play agora', nPlay(t)]];
+    if (t.playAtr !== undefined) extra.push(['Atrasadas na agenda (em play / fora do play)', (t.playAtr || 0) + ' / ' + (t.agendaAtr || 0)]);
+    if (state.dados && state.dados.prioOk) extra.push(['Prioridades pendentes na agenda', t.prioPend || 0], ['Prioridades atendidas (período)', t.prioAtend || 0]);
+    extra.forEach(([k, v]) => { dl.appendChild(el('dt', '', k)); dl.appendChild(el('dd', '', String(v))); });
+  }
   const fr = fracExpediente();
   if (fr) { dl.appendChild(el('dt', '', 'Projeção')); dl.appendChild(el('dd', '', fmtProj((Number(t.concl) || 0) / fr) + ' (estimativa linear)')); }
   const fN = n => (Math.round(n * 100) / 100).toString().replace('.', ',');
   const bx = $('tDias'); bx.innerHTML = '';
+  const bm = blocoMetas(t); if (bm) bx.appendChild(bm);
   if (t.metasTipo) {
     [['Tipo', t.tipo || '-'],
      ['Metas I / II / III / IV', t.metasTipo.map(fN).join(' / ')],
@@ -875,7 +959,7 @@ function abrirTecnico(t, opener) {
       t.dias.slice().reverse().forEach(x => {
         const r = el('div', 'tdia');
         r.appendChild(el('span', '', x.d));
-        r.appendChild(el('b', '', x.concl + (x.concl === 1 ? ' concluída' : ' concluídas')));
+        r.appendChild(el('b', '', x.concl + (x.concl === 1 ? ' concluída' : ' concluídas') + (x.prio ? ' · ★ ' + x.prio + (x.prio === 1 ? ' prioridade' : ' prioridades') : '')));
         const c = el('span', 'chip ' + x.nivel, x.faixa > 0 ? 'Meta ' + ROMANOS[x.faixa - 1] : 'Abaixo da meta');
         r.appendChild(c); ls.appendChild(r);
       });
@@ -888,7 +972,7 @@ function abrirTecnico(t, opener) {
   }
   abrirDlg($('dlgTec'), opener);
   const gr = graficoDias(t, bx.clientWidth);        // depois de abrir, para medir a largura real do diálogo
-  if (gr) bx.insertBefore(gr, bx.firstChild);
+  if (gr) bx.insertBefore(gr, bm ? bm.nextSibling : bx.firstChild);
 }
 $('tFechar').onclick = () => $('dlgTec').close();
 
@@ -1059,7 +1143,7 @@ function abrirFiltro() {
   $('fCustom').hidden = state.periodo !== 'custom';
   cal.dias = new Set((state.cal && state.cal.dias) || []); cal.meses = new Set((state.cal && state.cal.meses) || []);
   cal.y = HY; cal.m = HM; cal.aberto = state.periodo === 'cal'; calDesenhar();
-  $('fSupWrap').hidden = ehTec();
+  $('fSupWrap').hidden = ehTec() || papel() === 'controlador';   // controlador só tem a equipe dele
   fSupSel = new Set(state.sups); mselDesenhar($('fSupBox'), listaSups(), fSupSel);
   $('fOrd').value = state.ordem;
   abrirDlg($('dlgFiltro'));
@@ -1194,7 +1278,7 @@ const CATS = [
 ];
 const catDe = k => CATS.find(c => c.k === k) || CATS[CATS.length - 1];
 const AGB = [{ n: 'Até 1 dia', h: 48 }, { n: '1 a 3 dias', h: 30 }, { n: '3 a 6 dias', h: 12 }, { n: 'Mais de 6 dias', h: 350 }];
-const SIT_N = { atraso: 'Em atraso', play: 'Em play', fila: 'Sem técnico', venc4: 'Vencem em 4h' };
+const SIT_N = { atraso: 'Em atraso', atrplay: 'Atrasadas em play', atrfora: 'Atrasadas fora do play', prio: 'Prioridades', play: 'Em play', fila: 'Sem técnico', venc4: 'Vencem em 4h' };
 const ST_H = { 'abertura': 215, 'andamento': 160, 'agendado': 190, 'reagendado': 38, 'remarcacao': 18, 'tratamento infra': 280, 'inviabilidade tecnica': 350 };
 
 const bl = Object.assign({ emp: 'GERAL', ordem: 'atraso' }, store.get(BL_K, {}));
@@ -1248,7 +1332,7 @@ const BLP = {
   tec: (x, v) => x.tecK === v,
   ag: (x, v) => agBucket(x) === v,
   sup: (x, v) => Array.isArray(v) ? v.includes(nk(x.sup)) : nk(x.sup) === nk(v),
-  sit: (x, v) => v === 'atraso' ? !!x.atr : v === 'play' ? !!x.play : v === 'fila' ? !!x.fila : v === 'venc4' ? vence4(x) : true
+  sit: (x, v) => v === 'atraso' ? !!x.atr : v === 'atrplay' ? !!x.atr && !!x.play : v === 'atrfora' ? !!x.atr && !x.play : v === 'prio' ? !!x.prio : v === 'play' ? !!x.play : v === 'fila' ? !!x.fila : v === 'venc4' ? vence4(x) : true
 };
 function blFiltrar(skip, semEmp) {
   const q = semAcento(bl.busca).trim();
@@ -1375,7 +1459,7 @@ function blRender() {
     : (bl.emp === 'GERAL' ? 'Todas as empresas' : empNome(bl.emp)) + (bl.f.sup ? ' · ' + supResumo(bl.f.sup, blSupervisores()) : '') + ' · ' + totEmp + ' OS abertas';
   $('bFiltBtn').classList.toggle('on', !!bl.f.sup);
   blSalvar();
-  blEmps(); blKpis(); blChips(); blStrip();
+  blEmps(); blKpis(); blPrio(); blChips(); blStrip();
   blTipo(); blStatus(); blAging(); blCidades(); blTecnicos(); blMatriz(); blLista(); blModo();
   alertaSync(); tituloAba(); botaoNotif(); notificarVencimentos();
   $('bOrdem').value = bl.ordem;
@@ -1448,8 +1532,11 @@ function blKpis() {
 function blChips() {
   const l = blFiltrar('sit'), box = $('bChips'); box.innerHTML = '';
   const defs = [['todas', 'Todas', 'list', l.length], ['atraso', 'Em atraso', 'alert', l.filter(x => x.atr).length],
-    ['play', 'Em play', 'play', l.filter(x => x.play).length], ['fila', 'Sem técnico', 'queue', l.filter(x => x.fila).length],
-    ['venc4', 'Vencem em 4h:', 'clock', l.filter(vence4).length]];
+    ['atrplay', 'Atrasadas em play', 'play', l.filter(x => x.atr && x.play).length],
+    ['atrfora', 'Atrasadas fora do play', 'stop', l.filter(x => x.atr && !x.play).length]]
+    .concat(bl.dados && bl.dados.prioOk ? [['prio', 'Prioridades', 'star', l.filter(x => x.prio).length]] : [])
+    .concat([['play', 'Em play', 'play', l.filter(x => x.play).length], ['fila', 'Sem técnico', 'queue', l.filter(x => x.fila).length],
+    ['venc4', 'Vencem em 4h:', 'clock', l.filter(vence4).length]]);
   defs.forEach(([s, n, i, c]) => {
     const on = s === 'todas' ? !bl.f.sit : bl.f.sit === s;
     const b = el('button', 'chp' + (on ? ' on' : '')); b.type = 'button'; b.dataset.s = s; b.setAttribute('aria-pressed', String(on));
@@ -1648,7 +1735,7 @@ function realce(no, texto, termo) {
 }
 function osCard(x) {
   const s = sitOS(x), c = catDe(x.cat);
-  const r = el('div', 'os ' + s); r.tabIndex = 0; r.setAttribute('role', 'button');
+  const r = el('div', 'os ' + s + (x.prio ? ' prio' : '')); r.tabIndex = 0; r.setAttribute('role', 'button');
   r.setAttribute('aria-label', 'OS ' + x.id + ', ' + (x.cli || 'sem cliente') + ', ' + prazoTxt(x));
   const top = el('div', 'os-top');
   top.appendChild(realce(el('span', 'os-id'), '#' + x.id, bl.busca));
@@ -1663,6 +1750,7 @@ function osCard(x) {
   const tg = el('span', 'tag ' + s); tg.innerHTML = ic(s === 'bad' ? 'alert' : 'clock'); tg.appendChild(document.createTextNode(prazoTxt(x))); bot.appendChild(tg);
   bot.appendChild(el('span', 'tag st', x.stN));
   if (x.atr) bot.appendChild(seloAtraso('tag'));
+  if (x.prio) bot.appendChild(seloPrio('tag'));
   const tec = el('span', 'os-tec' + (x.fila ? ' fila' : '')); tec.innerHTML = ic(x.fila ? 'queue' : 'wrench'); tec.appendChild(realce(el('span'), tecTxt(x), bl.busca)); bot.appendChild(tec);
   r.appendChild(bot);
   const abrir = () => abrirOS(x);
@@ -1712,6 +1800,7 @@ function abrirOS(x) {
   const t1 = el('span', 'tag ' + s); t1.innerHTML = ic(s === 'bad' ? 'alert' : 'clock'); t1.appendChild(document.createTextNode(prazoTxt(x))); ch.appendChild(t1);
   ch.appendChild(el('span', 'tag st', x.stN));
   if (x.atr) ch.appendChild(seloAtraso('tag'));
+  if (x.prio) ch.appendChild(seloPrio('tag'));
   if (x.play) { const p = el('span', 'tag ok'); p.innerHTML = ic('play'); p.appendChild(document.createTextNode('Em play')); ch.appendChild(p); }
   if (x.fila) { const f = el('span', 'tag st'); f.innerHTML = ic('queue'); f.appendChild(document.createTextNode('Sem técnico')); ch.appendChild(f); }
 
@@ -1750,6 +1839,15 @@ function abrirOS(x) {
   par('Equipe', x.eq);
   par('Classificação', (x.cats || []).join(' › '));
   par('OS original', x.orig);
+  const pb = $('oPrioBox'); pb.hidden = !(x.prio && x.pr);
+  if (x.prio && x.pr) {
+    const pd = $('oPrioDet'); pd.innerHTML = '';
+    const pp = (k, v) => { if (v == null || v === '') return; pd.appendChild(el('dt', '', k)); pd.appendChild(el('dd', '', String(v))); };
+    pp('Justificativa', x.pr.jus); pp('Pedido por', x.pr.sol); pp('Setor', x.pr.set);
+    pp('Solicitada em', fmtFull(x.pr.dt) === '—' ? '' : fmtFull(x.pr.dt));
+    if (x.pr.n > 1) pp('Pedidos de prioridade', x.pr.n);
+    $('oPrioRel').textContent = x.pr.rel || ''; $('oPrioRel').hidden = !x.pr.rel;
+  }
   const precisaDesc = x.desc === undefined && x.temDesc;     // resposta leve: a descrição vem do servidor
   $('oDescBox').hidden = !(x.desc || precisaDesc);
   $('oDesc').textContent = x.desc || '';
@@ -1763,6 +1861,100 @@ function abrirOS(x) {
   });
 }
 $('oFechar').onclick = () => $('dlgOS').close();
+
+
+/* ----- Prioridades no Backlog (aba Prioridades): pendentes, atendidas por dia e lista ----- */
+const prSt = { aba: 'pend', dia: '' };
+const prPend = () => blFiltrar('sit').filter(x => x.prio);                       // mesmos filtros dos chips
+const prAtend = () => ((bl.dados && bl.dados.prioridades && bl.dados.prioridades.atend) || [])
+  .filter(x => (bl.emp === 'GERAL' || x.emp === bl.emp) && (!bl.f.sup || BLP.sup(x, bl.f.sup)));
+function isoMenos(n) {                                                           // dataHoje() menos n dias, yyyy-mm-dd
+  const [y, m, d] = dataHoje().split('-').map(Number), t = new Date(Date.UTC(y, m - 1, d - n));
+  return t.getUTCFullYear() + '-' + pad2(t.getUTCMonth() + 1) + '-' + pad2(t.getUTCDate());
+}
+const rotDia = iso => { const h = dataHoje(); return iso === h ? 'Hoje' : iso === isoMenos(1) ? 'Ontem' : iso.slice(8, 10) + '/' + iso.slice(5, 7); };
+function blPrio() {
+  const sec = $('bPrioSec'), d = bl.dados;
+  if (!d || !d.prioOk) { sec.hidden = true; return; }
+  sec.hidden = false;
+  const pend = prPend(), atend = prAtend(), sp = d.prioridades || {}, hoje = dataHoje();
+  $('bPrioN').textContent = pend.length + (pend.length === 1 ? ' pendente' : ' pendentes');
+  const k = $('bPrioKpi'); k.innerHTML = '';
+  const tile = (cls, v, lb, aba) => {
+    const b = el('button', 'prt ' + cls); b.type = 'button'; b.appendChild(el('b', '', String(v))); b.appendChild(el('span', '', lb));
+    b.setAttribute('aria-label', lb + ': ' + v + '. Ver lista'); b.onclick = () => abrirPrio(aba, ''); k.appendChild(b);
+  };
+  tile('pend', pend.length, 'Pendentes', 'pend');
+  tile('bad', pend.filter(x => x.atr).length, 'Pendentes em atraso', 'pend');
+  tile('ok', atend.filter(x => x.iso === hoje).length, 'Atendidas hoje', 'atend');
+  tile('ok', atend.length, 'Atendidas (30 dias)', 'atend');
+  if (!ehTec() && sp.semReg) tile('dim', sp.semReg, 'Sem registro', 'semreg');
+  // atendidas por dia: últimos 7 dias
+  const dias = []; for (let i = 6; i >= 0; i--) dias.push(isoMenos(i));
+  const cont = dias.map(iso => atend.filter(x => x.iso === iso).length), max = Math.max(1, ...cont);
+  $('bPrioCap').textContent = 'Atendidas por dia (últimos 7 dias)';
+  const box = $('bPrioDia'); box.innerHTML = '';
+  const wrap = el('div', 'age prdias');
+  dias.forEach((iso, i) => {
+    const b = el('button', 'agc'); b.type = 'button'; b.style.setProperty('--h', 280);
+    b.setAttribute('aria-label', rotDia(iso) + ': ' + cont[i] + ' atendidas');
+    b.appendChild(el('b', '', String(cont[i])));
+    const c = el('i', 'col'); c.style.height = (cont[i] ? Math.max(8, cont[i] / max * 96) : 4) + 'px'; b.appendChild(c);
+    b.appendChild(el('span', '', rotDia(iso)));
+    b.onclick = () => abrirPrio('atend', iso);
+    wrap.appendChild(b);
+  });
+  box.appendChild(wrap);
+}
+$('bPrioVer').onclick = () => abrirPrio('pend', '');
+function prCard(x, rot, extra) {
+  return cartaoOS({ tipo: x.tipo, protocolo: x.id, cliente: x.cli ? tc(x.cli) : '', cidade: x.cid ? tc(x.cid) : '', bairro: x.bai ? tc(x.bai) : '',
+    tecnico: x.fila ? 'Sem técnico' : (x.resp || x.tec || ''), emp: x.emp, status: x.stN, atr: x.atr, prio: 1, pr: x.pr }, rot, extra);
+}
+function abrirPrio(aba, dia) { prSt.aba = aba; prSt.dia = dia || ''; prDesenhar(); $('prBox').scrollTop = 0; abrirDlg($('dlgPrio')); }
+function prDesenhar() {
+  const pend = prPend(), atend = prAtend(), sp = (bl.dados && bl.dados.prioridades) || {};
+  const abas = [['pend', 'Pendentes', pend.length], ['atend', 'Atendidas', atend.length]];
+  if (!ehTec()) abas.push(['semreg', 'Sem registro', sp.semReg || 0]);
+  if (!abas.some(a => a[0] === prSt.aba)) prSt.aba = 'pend';
+  const cb = $('prChips'); cb.innerHTML = '';
+  abas.forEach(([k, n, c]) => {
+    const b = el('button', 'chp' + (prSt.aba === k ? ' on' : '')); b.type = 'button'; b.setAttribute('aria-pressed', String(prSt.aba === k));
+    b.appendChild(document.createTextNode(n)); b.appendChild(el('b', '', String(c)));
+    b.onclick = () => { prSt.aba = k; prSt.dia = ''; prDesenhar(); }; cb.appendChild(b);
+  });
+  const box = $('prLista'); box.innerHTML = '';
+  const vazio = t => { const v = el('div', 'pvazio'); v.innerHTML = ic('star'); v.appendChild(el('b', '', t)); box.appendChild(v); };
+  if (prSt.aba === 'pend') {
+    $('prSub').textContent = pend.length + (pend.length === 1 ? ' prioridade pendente' : ' prioridades pendentes') + ' · ' + pend.filter(x => x.atr).length + ' em atraso';
+    if (!pend.length) return vazio('Nenhuma prioridade pendente');
+    pend.slice().sort(SORTS.atraso).forEach(x => {
+      const c = prCard(x, 'Pendente', 'ag'); c.classList.add('clk'); c.tabIndex = 0; c.setAttribute('role', 'button');
+      c.addEventListener('click', () => abrirOS(x));
+      c.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirOS(x); } });
+      box.appendChild(c);
+    });
+  } else if (prSt.aba === 'atend') {
+    const l = prSt.dia ? atend.filter(x => x.iso === prSt.dia) : atend;
+    $('prSub').textContent = l.length + (l.length === 1 ? ' prioridade atendida' : ' prioridades atendidas') + (prSt.dia ? ' em ' + rotDia(prSt.dia) : ' nos últimos 30 dias') +
+      (sp.atendCortado ? ' (lista cortada: faltam ' + sp.atendCortado + ')' : '');
+    if (prSt.dia) { const lp = el('button', 'fbtn', 'Ver todos os dias'); lp.type = 'button'; lp.onclick = () => { prSt.dia = ''; prDesenhar(); }; box.appendChild(lp); }
+    if (!l.length) return vazio('Nenhuma prioridade atendida');
+    const g = new Map(); l.forEach(x => { if (!g.has(x.iso)) g.set(x.iso, []); g.get(x.iso).push(x); });
+    Array.from(g.keys()).sort().reverse().forEach(iso => {
+      const arr = g.get(iso), hd = el('div', 'chg'); hd.appendChild(el('b', '', rotDia(iso) + ' · ' + iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4))); hd.appendChild(el('span', '', arr.length + ' OS')); box.appendChild(hd);
+      arr.forEach(x => box.appendChild(prCard(Object.assign({}, x, { cli: x.cli, stN: 'Concluído' }), 'Atendida', 'cc')));
+    });
+  } else {
+    const l = sp.semRegItens || [];
+    $('prSub').textContent = (sp.semReg || 0) + ' sem registro · ' + (sp.cancel || 0) + ' canceladas (não entram nas contas)';
+    if (!l.length) return vazio('Nada sem registro');
+    l.forEach(x => {
+      const c = cartaoOS({ protocolo: x.id, tipo: 'Não está na base de abertos nem nos encerramentos', prio: 1, pr: x.pr }, 'Sem registro', 'ag'); box.appendChild(c);
+    });
+  }
+}
+$('prFechar').onclick = () => $('dlgPrio').close();
 
 /* ----- Concluídos hoje (Backlog) ----- */
 const chSt = { emp: 'GERAL', busca: '' };

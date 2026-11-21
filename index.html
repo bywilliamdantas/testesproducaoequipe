@@ -34,6 +34,7 @@
 <symbol id="i-bars" viewBox="0 0 24 24"><path d="M5 20v-5M11 20V9M17 20V4" stroke-width="3.5"/></symbol>
 <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M7.5 12.5l3 3 6-6.5" stroke="#07102a" stroke-width="2.6"/></symbol>
 <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+<symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z" fill="currentColor" stroke-width="1.5"/></symbol>
 <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0z" fill="currentColor"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3M12 14v4M8 21h8"/></symbol>
 <symbol id="i-play" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M10 8v8l6.5-4z" fill="#07102a" stroke="none"/></symbol>
 <symbol id="i-stop" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.2"/><rect x="9" y="9" width="6" height="6" rx="1.2" fill="currentColor" stroke="none"/></symbol>
@@ -205,6 +206,12 @@
   <div class="fstrip" id="bStrip"></div>
 
   <div class="bsecs">
+    <section class="bsec wide" id="bPrioSec" aria-label="Prioridades" hidden>
+      <div class="lhead"><h2><svg class="i" aria-hidden="true"><use href="#i-star"/></svg>Prioridades<small id="bPrioN"></small></h2><button type="button" class="fbtn" id="bPrioVer">Ver lista</button></div>
+      <div class="prtiles" id="bPrioKpi"></div>
+      <div class="prcap" id="bPrioCap"></div>
+      <div id="bPrioDia"></div>
+    </section>
     <section class="bsec" aria-label="Por tipo"><h2><svg class="i" aria-hidden="true"><use href="#i-grid"/></svg>Por tipo de OS<small id="bTipoN"></small></h2><div id="bTipo"></div></section>
     <section class="bsec" aria-label="Por status"><h2><svg class="i" aria-hidden="true"><use href="#i-pie"/></svg>Por status<small id="bStN"></small></h2><div id="bSt"></div></section>
     <section class="bsec" aria-label="Tempo de atraso"><h2><svg class="i" aria-hidden="true"><use href="#i-hourglass"/></svg>Tempo de atraso<small id="bAgN"></small></h2><div id="bAg"></div></section>
@@ -308,6 +315,7 @@
   <div class="ochips" id="oChips"></div>
   <div class="oacts" id="oActs"></div>
   <dl class="det" id="oDet"></dl>
+  <div class="odesc oprio" id="oPrioBox" hidden><h3>Pedido de prioridade</h3><dl class="det" id="oPrioDet"></dl><p id="oPrioRel"></p></div>
   <div class="odesc" id="oDescBox"><h3>Descrição da abertura</h3><p id="oDesc"></p><div id="oDescAux"></div></div>
   <div class="actions"><button type="button" class="btn pri" id="oFechar">Fechar</button></div>
 </div></dialog>
@@ -322,6 +330,14 @@
   </label>
   <div id="chLista"></div>
   <div class="actions"><button type="button" class="btn pri" id="chFechar">Fechar</button></div>
+</div></dialog>
+
+<!-- Prioridades (Backlog) -->
+<dialog id="dlgPrio"><div class="dlg" id="prBox">
+  <h2>Prioridades</h2><p class="sub" id="prSub"></p>
+  <div class="chips" id="prChips" role="group" aria-label="Situação da prioridade"></div>
+  <div id="prLista"></div>
+  <div class="actions"><button type="button" class="btn pri" id="prFechar">Fechar</button></div>
 </div></dialog>
 
 <!-- Código de acesso -->

@@ -51,11 +51,24 @@
  *   Técnicos    : Técnico | Supervisor  | Login | Senha | Ativo
  *   Supervisor  : Supervisor | Coordenador | Login | Senha | Ativo
  *   Coordenador : Coordenador | CEO | Login | Senha | Ativo
+ *   Controlador : Controlador | Supervisor   | Login | Senha | Ativo   (o "Supervisor" é a equipe do controlador)
  *   Toda chamada (doGet) precisa de login + senha. O servidor valida e já devolve só o que o perfil pode ver:
  *     tecnico     -> só a própria produção e só as OS abertas em que ele é o responsável (agenda dele)
+ *     controlador -> produção só da equipe do supervisor indicado na aba Controlador + backlog geral
  *     supervisor  -> produção de todas as equipes (o filtro do painel começa na equipe dele) + backlog geral
  *     coordenador -> produção de todas as equipes + backlog geral
  *   Ativo = NÃO bloqueia o login e tira a pessoa das listas. Vazio conta como ativo.
+ *
+ * PRIORIDADES (aba Prioridades: uma linha por pedido de prioridade; a mesma OS pode ter mais de um pedido):
+ *   Colunas lidas pelo cabeçalho (a linha de cabeçalho é a que tem "SOLICITANTE", em qualquer uma das 15 primeiras linhas):
+ *   protocolo (coluna sem título com números de 8+ dígitos, ou título "Protocolo"), SOLICITANTE, SETOR SOLICITANTE, JUSTIFICATIVA,
+ *   RELATO JUSTIFICATIVA PRIORIDADE e DT REQUIS. (a data pode estar numa linha acima do título).
+ *   Regra de identificação: o protocolo (só os dígitos) igual a protocolo_novo da Base_Abertos ou a Código dos encerramentos.
+ *     pendente    = a OS ainda está na Base_Abertos (backlog / agenda do técnico)
+ *     atendida    = a OS tem ENCERRAMENTO em Encerramentos / Encerramentos_Hoje no dia da solicitação ou depois (conta no dia do encerramento)
+ *     cancelada   = só tem CANCELADO nas abas de encerramento
+ *     sem registro= não está na Base_Abertos nem nas abas de encerramento (ex.: #N/A na planilha de pedidos)
+ *   Importante: pedidos que forem apagados da aba Prioridades deixam de ser contados (o histórico vem da própria aba).
  *
  * METAS POR TIPO DE TÉCNICO (aba Metas + coluna Tipo da aba Técnicos):
  *   Tipo (Condominio / Instalador / Misto) define a meta diária de concluídas: Meta I a Meta IV.
@@ -95,6 +108,10 @@ const ABA_SINC = 'Sincronismo';
 const ABA_ABERTOS = 'Base_Abertos';
 const ABA_SUP = 'Supervisor';
 const ABA_COORD = 'Coordenador';
+const ABA_CONTR = 'Controlador';    // Controlador | Supervisor | Login | Senha | Ativo
+const ABA_PRIO = 'Prioridades';     // pedidos de prioridade (ver o bloco PRIORIDADES no topo)
+const LIMITE_PRIO_DIAS = 30;        // dias de prioridades atendidas enviadas para a tela
+const LIMITE_PRIO_LISTA = 600;      // máx. de OS atendidas / sem registro detalhadas na resposta
 const ABA_METAS = 'Metas';          // Tipo | Meta I | Meta II | Meta III | Meta IV  (meta diária de concluídas por tipo de técnico)
 // Tipos de OS que SEMPRE contam como concluídos (Pendência), mesmo que a coluna Reabertura venha = 1.
 // Comparação por "contém", sem acento. Para desligar a regra, deixe a lista vazia: [].
@@ -211,6 +228,7 @@ function lerUsuariosRaw(ss, aba) {
   // a aba Técnicos tem a coluna Tipo antes do nome, então nome e vínculo também são localizados pelo cabeçalho
   const dica = aba === ABA_TEC ? [['tecnico', 'tecnicos', 'nome'], ['supervisor']]
              : aba === ABA_SUP ? [['supervisor', 'nome'], ['coordenador']]
+             : aba === ABA_CONTR ? [['controlador', 'nome'], ['supervisor']]
              : [['coordenador', 'nome'], ['ceo']];
   const iNom = ix(dica[0], 0), iRef = ix(dica[1], 1);
   const iLog = ix(['login', 'usuario'], 2), iSen = ix(['senha'], 3), iAti = ix(['ativo', 'ativa'], 4);
@@ -231,11 +249,11 @@ function lerUsuariosRaw(ss, aba) {
   return out;
 }
 
-/** Confere login + senha nas abas Coordenador, Supervisor e Técnicos (nessa ordem). Devolve o usuário ou null. */
+/** Confere login + senha nas abas Coordenador, Supervisor, Controlador e Técnicos (nessa ordem). Devolve o usuário ou null. */
 function autenticar(ss, login, senha) {
   const l = chave(login), s = String(senha == null ? '' : senha).trim();
   if (!l || !s) return null;
-  const grupos = [['coordenador', ABA_COORD], ['supervisor', ABA_SUP], ['tecnico', ABA_TEC]];
+  const grupos = [['coordenador', ABA_COORD], ['supervisor', ABA_SUP], ['controlador', ABA_CONTR], ['tecnico', ABA_TEC]];
   for (let g = 0; g < grupos.length; g++) {
     const lista = lerUsuarios(ss, grupos[g][1]);
     for (let i = 0; i < lista.length; i++) {
@@ -243,7 +261,7 @@ function autenticar(ss, login, senha) {
       if (u.ativo && u.login && chave(u.login) === l && u.senha === s) {
         return {
           papel: grupos[g][0], nome: u.nome,
-          supervisor: grupos[g][0] === 'tecnico' ? u.ref : grupos[g][0] === 'supervisor' ? u.nome : '',
+          supervisor: grupos[g][0] === 'tecnico' || grupos[g][0] === 'controlador' ? u.ref : grupos[g][0] === 'supervisor' ? u.nome : '',
           coordenador: grupos[g][0] === 'supervisor' ? u.ref : grupos[g][0] === 'coordenador' ? u.nome : ''
         };
       }
@@ -719,14 +737,139 @@ function concluidosHojeDetalhe(ss, somenteNome) {
   try {
     const a = lerAbaC(ss, ABA_HOJE), k = somenteNome ? nomeKey(somenteNome) : '';
     const l = a.rows.filter(x => (!k || nomeKey(x.at) === k) && x.st === 'ENCERRAMENTO' && !ehPrestacaoContas(x.tp) && !ehReabertura(x));
+    let pm = null; try { pm = lerPrioridades(ss); } catch (e2) {}
     return {
       total: l.length,
-      itens: l.slice(0, LIMITE_CONCL_HOJE_ITENS).map(x => ({
+      itens: l.slice(0, LIMITE_CONCL_HOJE_ITENS).map(x => comPrio({
         tipo: x.tp, protocolo: x.cod, cliente: x.cli, cidade: x.cid, bairro: x.bai,
         tecnico: x.at, emp: empresaDe(x.tp, '', ''), status: 'Concluído'
-      }))
+      }, x.cod, pm))
     };
   } catch (e) { return null; }
+}
+
+/* ---------- PRIORIDADES (aba Prioridades) ---------- */
+function digitosOS(v) { return String(v == null ? '' : v).replace(/\D/g, ''); }
+// Data/hora da aba Prioridades: Date, texto ou número serial do Sheets (dias desde 30/12/1899, sem fuso)
+function msPrio(v) {
+  if (typeof v === 'number' && v > 30000 && v < 80000) {
+    const d = new Date(Math.round((v - 25569) * 864e5));
+    return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()).getTime();
+  }
+  return msDataHora(v);
+}
+/**
+ * Lê a aba Prioridades. Devolve { ok, n, mapa } onde mapa[protocolo só com dígitos] = { id, sol[], set[], jus[], rel, dt, n }.
+ * A mesma OS pode ter vários pedidos: viram um registro só (n = quantidade de pedidos, dt = data do primeiro pedido).
+ */
+function lerPrioridades(ss) { return viaCache('prio', CACHE_TTL_DADOS, null, () => lerPrioridadesRaw(ss)); }
+function lerPrioridadesRaw(ss) {
+  const sh = ss.getSheetByName(ABA_PRIO);
+  if (!sh) return { ok: false, n: 0, mapa: {}, motivo: 'A aba ' + ABA_PRIO + ' não foi encontrada.' };
+  if (sh.getLastRow() < 2) return { ok: true, n: 0, mapa: {} };
+  const v = sh.getDataRange().getValues();
+  // linha do cabeçalho = a primeira (entre as 15 primeiras) que tem a célula "SOLICITANTE"
+  let h = -1;
+  for (let i = 0; i < Math.min(v.length, 15) && h < 0; i++) { if (v[i].some(c => chaveH(c) === 'solicitante')) h = i; }
+  if (h < 0) h = 0;
+  const ncol = v[h].length;
+  // título da coluna: o da linha do cabeçalho ou, se estiver vazio, o da linha de cima (ex.: "DT REQUIS." fica uma linha acima)
+  const cols = [];
+  for (let j = 0; j < ncol; j++) cols.push(chaveH(v[h][j]) || (h > 0 ? chaveH(v[h - 1][j]) : ''));
+  const exato = nomes => { for (let i = 0; i < nomes.length; i++) { const k = cols.indexOf(nomes[i]); if (k >= 0) return k; } return -1; };
+  const contem = ws => { for (let j = 0; j < cols.length; j++) { if (cols[j] && ws.some(w => cols[j].indexOf(w) >= 0)) return j; } return -1; };
+  let iProt = exato(['protocolo', 'protocolo novo', 'protocolo os', 'os', 'codigo']);
+  if (iProt < 0) {                                   // coluna sem título: a que tem mais números de 8 ou mais dígitos
+    let melhor = 0;
+    for (let j = 0; j < ncol; j++) {
+      let n = 0;
+      for (let i = h + 1; i < Math.min(v.length, h + 60); i++) { if (/^\d{8,}$/.test(String(v[i][j]).trim())) n++; }
+      if (n > melhor) { melhor = n; iProt = j; }
+    }
+  }
+  if (iProt < 0) return { ok: false, n: 0, mapa: {}, motivo: 'Não achei a coluna do protocolo na aba ' + ABA_PRIO + '.' };
+  const iSol = exato(['solicitante']), iSet = contem(['setor']), iJus = exato(['justificativa', 'motivo']),
+        iRel = contem(['relato']), iDt = contem(['requis', 'data solicitacao', 'dt solicitacao']);
+  const mapa = {}; let n = 0;
+  for (let i = h + 1; i < v.length; i++) {
+    const r = v[i], k = digitosOS(r[iProt]);
+    if (k.length < 8) continue;
+    const txt = j => j < 0 ? '' : corrigeTexto(r[j]).replace(/\s+/g, ' ').trim();
+    const un = (arr, t) => { if (t && arr.indexOf(t) < 0) arr.push(t); };
+    const dt = iDt < 0 ? null : msPrio(r[iDt]);
+    let m = mapa[k];
+    if (!m) { m = mapa[k] = { id: k, sol: [], set: [], jus: [], rel: '', dt: null, n: 0 }; n++; }
+    m.n++;
+    un(m.sol, txt(iSol)); un(m.set, txt(iSet)); un(m.jus, txt(iJus));
+    const rel = txt(iRel); if (rel) m.rel = rel.length > 400 ? rel.slice(0, 400) + '…' : rel;   // vale o relato mais recente
+    if (dt != null && (m.dt == null || dt < m.dt)) m.dt = dt;
+  }
+  return { ok: true, n: n, mapa: mapa };
+}
+// dados do pedido que vão junto da OS (compactos)
+function prioInfo(m) { return { sol: m.sol.join(', '), set: m.set.join(', '), jus: m.jus.join(' / '), rel: m.rel, dt: m.dt, n: m.n }; }
+// devolve a OS marcada como prioridade (prio = 1 e pr = dados do pedido); sem pedido, devolve a própria OS
+function comPrio(item, id, pm) {
+  const m = pm && pm.mapa ? pm.mapa[digitosOS(id)] : null;
+  if (!m) return item;
+  const c = Object.assign({}, item); c.prio = 1; c.pr = prioInfo(m);
+  return c;
+}
+// o encerramento vale como atendimento se foi no dia do primeiro pedido ou depois
+function prioValeEnc(m, dt) { return !!dt && (m.dt == null || dia(dt) >= dia(new Date(m.dt))); }
+
+/**
+ * Situação dos pedidos de prioridade (Backlog): cruza a aba Prioridades com a Base_Abertos e as abas de encerramento.
+ *   pendente = ainda aberta (a tela conta pelas OS do backlog) · atendida = tem ENCERRAMENTO desde o pedido (lista dos últimos LIMITE_PRIO_DIAS dias)
+ *   cancelada = só tem CANCELADO · sem registro = não está em nenhuma das bases
+ * somenteNome (visão do técnico): só as atendidas por ele, sem canceladas nem sem registro.
+ */
+function situacaoPrioridades(ss, pm, bk, somenteNome) {
+  if (!pm || !pm.ok) return { ok: false };
+  const ids = Object.keys(pm.mapa);
+  const r = { ok: true, total: ids.length, atend: [], atendCortado: 0, cancel: 0, semReg: 0, semRegItens: [] };
+  const abertas = {};
+  (bk && bk.ok ? bk.itens : []).forEach(x => { const k = digitosOS(x.id); if (k) abertas[k] = 1; });
+  try {
+    const ab = lerAbertos(ss);
+    if (ab.ok) Object.keys(ab.mapa).forEach(nm => { const m = ab.mapa[nm]; m.play.concat(m.agenda).forEach(it => { const k = digitosOS(it.protocolo); if (k) abertas[k] = 1; }); });
+  } catch (e) {}
+  const hoje = dia(new Date());
+  const enc = {}, canc = {};
+  const visita = (rows, ehHoje) => rows.forEach(x => {
+    const k = digitosOS(x.cod), m = k && pm.mapa[k];
+    if (!m) return;
+    const dt = x.dt || (ehHoje ? hoje : null);
+    if (x.st === 'ENCERRAMENTO' && prioValeEnc(m, dt)) {
+      const d = dia(dt).getTime();
+      if (!enc[k] || d < enc[k].d) enc[k] = { d: d, iso: isoDia(dia(dt)), at: x.at, tp: x.tp, cli: x.cli, cid: x.cid, bai: x.bai };
+    } else if (x.st === 'CANCELADO') canc[k] = 1;
+  });
+  try {
+    const base = lerAbaC(ss, ABA_BASE), hj = lerAbaC(ss, ABA_HOJE);
+    const codsHoje = new Set(hj.rows.filter(x => x.cod).map(x => digitosOS(x.cod)));
+    visita(base.rows.filter(x => !(x.cod && codsHoje.has(digitosOS(x.cod)))), false);   // vale a linha de Encerramentos_Hoje
+    visita(hj.rows, true);
+  } catch (e) { return { ok: false }; }
+  const supT = lerSupervisoresTec(ss).mapa;
+  const lim = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - (LIMITE_PRIO_DIAS - 1)).getTime();
+  const quem = somenteNome ? nomeKey(somenteNome) : '';
+  const atend = [];
+  ids.forEach(k => {
+    if (abertas[k]) return;
+    const m = pm.mapa[k], e = enc[k];
+    if (e) {
+      if ((quem && nomeKey(e.at) !== quem) || e.d < lim) return;
+      atend.push({ id: m.id, iso: e.iso, ms: e.d, tec: e.at, sup: supT[nomeKey(e.at)] || '', tipo: e.tp, cli: e.cli, cid: e.cid, bai: e.bai, emp: empresaDe(e.tp, '', ''), pr: prioInfo(m) });
+    } else if (!quem) {
+      if (canc[k]) r.cancel++;
+      else { r.semReg++; if (r.semRegItens.length < 100) r.semRegItens.push({ id: m.id, pr: prioInfo(m) }); }
+    }
+  });
+  atend.sort((a, b) => b.ms - a.ms || a.id.localeCompare(b.id));
+  if (atend.length > LIMITE_PRIO_LISTA) { r.atendCortado = atend.length - LIMITE_PRIO_LISTA; atend.length = LIMITE_PRIO_LISTA; }
+  r.atend = atend;
+  return r;
 }
 
 function montarBacklog(p) {
@@ -745,7 +888,10 @@ function montarBacklog(p) {
   const sinc = lerSinc(ss);
   const leve = String(p.leve || '') === '1';   // leve: OS sem a descrição (vem por acao=os) e sem a lista de concluídos (vem por acao=concluidosHoje)
   const ch = leve ? null : concluidosHojeDetalhe(ss, tec ? usr.nome : '');
-  const lista = leve ? itens.map(x => { const c = Object.assign({}, x); c.temDesc = c.desc ? 1 : 0; delete c.desc; return c; }) : itens;
+  const lista0 = leve ? itens.map(x => { const c = Object.assign({}, x); c.temDesc = c.desc ? 1 : 0; delete c.desc; return c; }) : itens;
+  let pm = { ok: false, mapa: {} };
+  try { pm = lerPrioridades(ss); } catch (e) {}                       // sem a aba Prioridades (ou com erro) o backlog funciona igual, sem marcas
+  const lista = pm.ok ? lista0.map(x => comPrio(x, x.id, pm)) : lista0;
   const resp = {
     ok: true,
     titulo: tec ? 'Minhas OS agendadas' : 'Backlog',
@@ -757,6 +903,8 @@ function montarBacklog(p) {
     supervisores: tec ? [] : lerSupervisoresTec(ss).lista,
     itens: lista
   };
+  resp.prioOk = !!pm.ok;                          // false = não existe a aba Prioridades (a tela esconde o bloco de prioridades)
+  if (pm.ok) { const sp = situacaoPrioridades(ss, pm, b, tec ? usr.nome : ''); if (sp.ok) resp.prioridades = sp; }   // pedidos de prioridade: atendidas, canceladas, sem registro
   if (ch) resp.concluidosHojeItens = ch.itens;   // lista do diálogo "Concluídos hoje" (campo opcional)
   if (leve) resp.concluidosHojeDet = true;       // avisa o front que a lista está disponível sob demanda
   return resp;
@@ -774,16 +922,19 @@ function montar(p) {
   }
 
   // técnicos ativos (aba Técnicos: Técnico | Supervisor | Login | Senha | Ativo)
-  // técnico logado enxerga só a si mesmo; supervisor e coordenador recebem todos (o painel filtra por equipe)
+  // técnico logado enxerga só a si mesmo; controlador só a equipe dele; supervisor e coordenador recebem todos (o painel filtra por equipe)
   const tecs = [];
   lerUsuarios(ss, ABA_TEC).forEach(u => {
     if (!u.ativo) return;
     if (usr.papel === 'tecnico' && nomeKey(u.nome) !== nomeKey(usr.nome)) return;
+    if (usr.papel === 'controlador' && nomeKey(u.ref) !== nomeKey(usr.supervisor)) return;   // controlador: só a equipe do supervisor dele
     tecs.push({ nome: up(u.nome), supervisor: u.ref, tipo: u.tipo });
   });
 
   const hoje = dia(new Date());
   const per = String(p.periodo || 'hoje');
+  let pm = { ok: false, mapa: {} };
+  try { pm = lerPrioridades(ss); } catch (e) {}      // sem a aba Prioridades (ou com erro) o painel funciona igual, sem marcas
 
   // quais abas entram, conforme o filtro
   const usaBase = per !== 'hoje';
@@ -838,7 +989,7 @@ function montar(p) {
 
   // contagem por técnico
   const mapa = {};
-  tecs.forEach(t => { mapa[nomeKey(t.nome)] = { dias: {}, reabInst: 0, reabPend: 0, inst: 0, pend: 0, concl: 0, outros: 0, reabOutros: 0, cancel: 0, atraso: 0, naBase: false, conclItens: [] }; });
+  tecs.forEach(t => { mapa[nomeKey(t.nome)] = { dias: {}, reabInst: 0, reabPend: 0, inst: 0, pend: 0, concl: 0, outros: 0, reabOutros: 0, cancel: 0, atraso: 0, naBase: false, conclItens: [], prioAtend: 0 }; });
   linhas.forEach(x => {
     const m = mapa[nomeKey(x.at)];
     if (!m) return;
@@ -847,8 +998,11 @@ function montar(p) {
     if (x.st !== 'ENCERRAMENTO') return;
     // controle por dia (dia produzido = ao menos um encerramento no dia)
     const kd = x.dt ? isoDia(dia(x.dt)) : '';
-    const dd = kd ? (m.dias[kd] || (m.dias[kd] = { concl: 0, prod: 0 })) : { concl: 0, prod: 0 };
+    const dd = kd ? (m.dias[kd] || (m.dias[kd] = { concl: 0, prod: 0, prio: 0 })) : { concl: 0, prod: 0, prio: 0 };
     dd.prod++;
+    // prioridade atendida: o protocolo está na aba Prioridades e o encerramento é do dia do pedido ou depois
+    const pmx = pm.ok ? pm.mapa[digitosOS(x.cod)] : null;
+    if (pmx && prioValeEnc(pmx, x.dt)) { m.prioAtend++; dd.prio++; }
     const cls = classificarOS(x);
     // Reabertura: conta só nas colunas de reabertura e sai de todo o resto
     // (Prestação de contas / combustível reabertos vão só para "Reab. prest. contas")
@@ -866,10 +1020,10 @@ function montar(p) {
       dd.concl++;
       // detalhe da OS concluída (aberto ao clicar no valor de Concluídos); limite de segurança por técnico
       if (m.conclItens.length < LIMITE_CONCL_ITENS) {
-        m.conclItens.push({
+        m.conclItens.push(comPrio({
           tipo: x.tp, protocolo: x.cod, cliente: x.cli, cidade: x.cid, bairro: x.bai,
           status: 'Concluído', emp: empresaDe(x.tp, '', '')
-        });
+        }, x.cod, pm));
       }
     }
     if (x.atr.indexOf('SIM') === 0) m.atraso++;
@@ -890,7 +1044,7 @@ function montar(p) {
     const metas = mt.mapa[chave(t.tipo)] || null;
     const diasArr = Object.keys(m.dias).sort().filter(k => m.dias[k].prod > 0).map(k => {
       const c = m.dias[k].concl;
-      return { iso: k, d: k.slice(8, 10) + '/' + k.slice(5, 7), concl: c,
+      return { iso: k, d: k.slice(8, 10) + '/' + k.slice(5, 7), concl: c, prio: m.dias[k].prio || 0,
                faixa: metas ? faixaMeta(c, metas) : null, nivel: metas ? nivelMeta(c, metas) : null };
     });
     const diasProd = diasArr.length;
@@ -900,6 +1054,8 @@ function montar(p) {
     const media = diasMeta ? Math.round(m.concl / diasMeta * 100) / 100 : 0;
     const nivel = calcularNivel({ metas: metas, diasMeta: diasMeta, media: media, concl: m.concl, diario: diario, metaN: metaN, metaO: metaO });
     const tk = nomeKey(t.nome);
+    const playIt = a ? a.play.map(it => comPrio(it, it.protocolo, pm)) : [];       // OS em execução / agendadas, com a marca de prioridade
+    const agIt = a ? a.agenda.map(it => comPrio(it, it.protocolo, pm)) : [];
     const regTec = {
       nome: t.nome, supervisor: t.supervisor, tipo: t.tipo,
       reabInst: m.reabInst, reabPend: m.reabPend, inst: m.inst, pend: m.pend, concl: m.concl,
@@ -918,9 +1074,13 @@ function montar(p) {
       // ativo: agendado (só no filtro Hoje) ou com encerramento no período; sem a base de abertos, em Hoje conta todos
       ativo: ativo,
       conclItens: m.conclItens,
-      playItens: a ? a.play : [],
-      agendaItens: a ? a.agenda : [],
-      agenda: agendaN
+      playItens: playIt,
+      agendaItens: agIt,
+      agenda: agendaN,
+      // contadores para o detalhamento (a resposta leve não traz as listas): OS em atraso e prioridades
+      playAtr: playIt.filter(x => x.atr).length, agendaAtr: agIt.filter(x => x.atr).length,
+      prioPend: playIt.concat(agIt).filter(x => x.prio).length,   // prioridades ainda na agenda do técnico
+      prioAtend: m.prioAtend                                       // prioridades atendidas por ele no período
     };
     if (cmpAnt) { regTec.cmpOntem = cmpAnt[tk] || 0; regTec.cmpSemana = cmpSem[tk] || 0; }   // comparativo por técnico (o front soma os visíveis)
     return leve ? aliviarTecnico(regTec) : regTec;
@@ -940,7 +1100,8 @@ function montar(p) {
     abertosOk: ab.ok,
     baseVazia: per !== 'hoje' && !base.total && !hojeAba.total,
     periodo: { ini: br(ini), fim: br(fim), iniBR: br(ini), fimBR: br(fim), rotulo: rotulo },
-    supervisores: usr.papel === 'tecnico' ? [] : listaSupervisores(ss),
+    supervisores: usr.papel === 'tecnico' ? [] : usr.papel === 'controlador' ? supervisoresDoControlador(ss, usr) : listaSupervisores(ss),
+    prioOk: pm.ok,
     metas: { normal: metaN, obs: metaO },
     metaGap: cfg.metaGap,
     metasOk: mt.ok,
@@ -955,6 +1116,12 @@ function montar(p) {
   return resp;
 }
 
+// Controlador: a lista de equipes do filtro tem só a equipe dele (nome como está na aba Supervisor / Técnicos)
+function supervisoresDoControlador(ss, usr) {
+  const k = nomeKey(usr.supervisor);
+  const l = listaSupervisores(ss).filter(n => nomeKey(n) === k);
+  return l.length ? l : (usr.supervisor ? [usr.supervisor] : []);
+}
 // Resposta leve (Etapa 8): troca as listas pesadas de OS por contadores
 function aliviarTecnico(t) {
   const c = Object.assign({}, t);
@@ -1254,5 +1421,28 @@ function testarMetas() {
   lerUsuarios(ss, ABA_TEC).forEach(u => {
     const m = mt.mapa[chave(u.tipo)];
     Logger.log(u.nome + ' | Tipo=' + JSON.stringify(u.tipo) + ' | ' + (m ? 'metas ' + m.join(' / ') : 'SEM META (tipo vazio ou fora da aba Metas)'));
+  });
+}
+
+/** Diagnóstico das prioridades: mostra como a aba Prioridades foi lida e a situação de cada pedido (pendente, atendida, cancelada, sem registro). */
+function testarPrioridades() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const pm = lerPrioridadesRaw(ss);
+  if (!pm.ok) { Logger.log('Aba Prioridades: ' + pm.motivo); return; }
+  Logger.log('Pedidos únicos lidos: ' + pm.n);
+  const b = lerBacklogRaw(ss), sp = situacaoPrioridades(ss, pm, b, '');
+  if (!sp.ok) { Logger.log('Não consegui cruzar com as bases.'); return; }
+  const abertas = {}; (b.itens || []).forEach(x => { abertas[digitosOS(x.id)] = 1; });
+  Logger.log('Pendentes (no backlog): ' + Object.keys(pm.mapa).filter(k => abertas[k]).length + ' | atendidas (30 dias): ' + sp.atend.length + ' | canceladas: ' + sp.cancel + ' | sem registro: ' + sp.semReg);
+  sp.atend.slice(0, 15).forEach(a => Logger.log('  atendida ' + a.iso + ' #' + a.id + ' por ' + a.tec));
+  sp.semRegItens.slice(0, 15).forEach(a => Logger.log('  sem registro #' + a.id + ' (' + a.pr.jus + ')'));
+}
+
+/** Diagnóstico da aba Controlador: quem tem login, qual equipe enxerga e quantos técnicos ativos há nela. */
+function testarControlador() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet(), tecs = lerUsuarios(ss, ABA_TEC).filter(u => u.ativo);
+  lerUsuarios(ss, ABA_CONTR).forEach(u => {
+    const n = tecs.filter(t => nomeKey(t.ref) === nomeKey(u.ref)).length;
+    Logger.log(u.nome + ' | equipe (supervisor): ' + u.ref + ' | ' + n + ' técnicos ativos' + (u.login && u.senha ? '' : ' | SEM login/senha: não consegue entrar') + (u.ativo ? '' : ' | INATIVO'));
   });
 }

@@ -2934,3 +2934,60 @@ body.tv { overflow-x: hidden; }
 :root[data-theme="light"] .oact.wa { color: #0a6a3a; }
 /* KPIs do resumo: no tema claro o texto continua branco, então o fundo ganha uma base escura da própria cor */
 :root[data-theme="light"] .kpi { background-color: #123068; background-color: color-mix(in srgb, rgb(var(--k)) 55%, #000); }
+
+
+/* ===================================================================
+   11. PRIORIDADES, ATRASADAS EM PLAY E DETALHAMENTO DE METAS (novo)
+   =================================================================== */
+.tag.prio, .pchip.selo-prio {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: hsl(280 80% 60% / .18); border-color: hsl(280 85% 70% / .55); color: hsl(280 95% 86%);
+}
+.tag.prio .i, .pchip.selo-prio .i { width: 12px; height: 12px }
+.pcard.prio, .os.prio { box-shadow: 0 0 0 1px hsl(280 85% 70% / .5) }
+.pcard.clk { cursor: pointer }
+.chp[data-s="atrplay"] { --c: 255,74,85 }
+.chp[data-s="atrfora"] { --c: 255,138,31 }
+.chp[data-s="prio"] { --c: 168,85,247 }
+
+.pr-bdg {
+  display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 1px 7px;
+  border-radius: 99px; border: 1px solid hsl(280 85% 70% / .55); background: hsl(280 80% 60% / .18);
+  color: hsl(280 95% 86%); font-size: .72rem; font-weight: 700; vertical-align: middle;
+}
+.pr-bdg .i { width: 11px; height: 11px }
+
+.prtiles { display: grid; grid-template-columns: repeat(auto-fit,minmax(120px,1fr)); gap: 8px; margin: 4px 0 8px }
+.prt {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 6px; cursor: pointer;
+  border-radius: 14px; border: 1px solid hsl(280 85% 70% / .45); background: hsl(280 80% 60% / .12); color: inherit; font: inherit;
+}
+.prt b { font-size: 1.6rem; font-variant-numeric: tabular-nums }
+.prt span { font-size: .74rem; color: var(--muted); text-align: center }
+.prt.bad { border-color: var(--bad-line); background: var(--bad-bg) }
+.prt.ok { border-color: var(--ok-line); background: var(--ok-bg) }
+.prt.dim { border-color: var(--line-strong); background: transparent }
+.prcap { margin: 6px 4px 0; font-size: .8rem; font-weight: 600; color: var(--muted) }
+.prdias { grid-template-columns: repeat(7,minmax(0,1fr)) }
+.prdias .agc { min-height: 140px }
+#dlgPrio { width: min(520px,calc(100% - 24px)) }
+#prBox { max-height: calc(100dvh - 32px); overflow-y: auto }
+#prBox .chips { margin: 6px -2px 8px }
+body.m-desk #dlgPrio { width: min(760px,calc(100% - 48px)) }
+#oPrioDet { grid-template-columns: auto minmax(0,1fr); column-gap: 16px; margin-top: 0 }
+#oPrioDet dd { overflow-wrap: anywhere }
+#oPrioRel { margin-top: 8px }
+
+/* bloco Metas do detalhe do técnico */
+.mt h3 { margin: 18px 0 6px; font-size: .95rem; font-weight: 700 }
+.mt-bar { position: relative; height: 14px; margin: 10px 6px 22px; border-radius: 99px; background: var(--line) }
+.mt-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 99px; background: var(--accent) }
+.mt-fill.atencao { background: var(--bad) } .mt-fill.obs { background: var(--warn) } .mt-fill.normal { background: var(--ok) } .mt-fill.acima { background: var(--accent) }
+.mt-tick { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); opacity: .7; text-decoration: none }
+.mt-tick s { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 2px; font-size: .66rem; color: var(--muted); text-decoration: none; white-space: nowrap }
+.mt-res { margin: 0 0 6px; font-size: .82rem; color: var(--muted); line-height: 1.35 }
+.mt-row { display: grid; grid-template-columns: 5.5rem 1fr auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: .9rem }
+.mt-n { font-weight: 600 } .mt-v { color: var(--muted) } .mt-s { font-variant-numeric: tabular-nums; color: var(--warn) }
+.mt-row.ok .mt-s { color: var(--ok) }
+
+:root[data-theme="light"] .tag.prio, :root[data-theme="light"] .pchip.selo-prio, :root[data-theme="light"] .pr-bdg { color: hsl(280 70% 30%) }
