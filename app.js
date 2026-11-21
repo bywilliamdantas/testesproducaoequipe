@@ -784,37 +784,7 @@ function render() {
   }
   kc.style.setProperty('--fill', (state.periodo === 'hoje' && meta ? Math.min(100, s.concl / meta * 100) : 0).toFixed(1) + '%');
 
-  const dg = $('dgrid'); dg.innerHTML = '';
-  const itens = [
-    ['Instalação', s.inst], ['Reab. Inst.', s.reabI], ['Prest. de contas', s.outros], ['Reab. prest. contas', s.reabO],
-    ['Cancelados', s.canc], ['Em atraso (SLA)', s.atraso],
-    ['Em play agora', lista.filter(t => t.play === 'play').length],
-    ['Agendados sem play', lista.filter(t => t.play === 'parado').length],
-    ['Agenda concluída', lista.filter(t => t.play === 'fim').length],
-    ['Sem agenda e sem conclusão', lista.filter(t => t.play === 'vazio').length],
-    ['Técnicos ativos / total', nAtivos + ' / ' + lista.length],
-    ['Em atenção', s.atencao], ['Em observação', s.obs], ['Normal', s.normal], ['Acima', s.acima],
-    ['Média por técnico ativo', nAtivos ? (s.concl / nAtivos).toFixed(1).replace('.', ',') : '0'],
-    temMeta ? ['Meta do período (Meta ' + (ROMANOS[(d.metaGap || 1) - 1] || 'I') + ')', fmtN(meta)] : ['Meta Normal (período)', d.metas ? String(d.metas.normal).replace('.', ',') : '-'],
-    temMeta ? ['Gap do período', (s.concl - meta > 0 ? '+' : '') + fmtN(s.concl - meta)] : ['Meta Observação (período)', d.metas ? String(d.metas.obs).replace('.', ',') : '-']
-  ];
-  const frT = fracExpediente();
-  if (frT) itens.push(['Projeção do dia (estimativa linear)', fmtProj(s.concl / frT)]);
-  if (d.escala && d.escala.ok) itens.push(['Em escala (' + rotEsc(d.escala.data) + ')', lista.filter(t => t.escTipo === 'escala').length], ['Em extra', lista.filter(t => t.escTipo === 'extra').length]);
-  if (d.prioOk) {                                // prioridades (aba Prioridades): pendentes na agenda e atendidas no período
-    itens.push(['Prioridades pendentes (agenda)', lista.reduce((a, t) => a + (t.prioPend || 0), 0)]);
-    itens.push(['Prioridades atendidas (período)', lista.reduce((a, t) => a + (t.prioAtend || 0), 0)]);
-    const porDia = {}; lista.forEach(t => (t.dias || []).forEach(x => { if (x.prio) porDia[x.iso] = (porDia[x.iso] || 0) + x.prio; }));
-    const ks = Object.keys(porDia).sort().slice(-7);
-    if (ks.length > 1) itens.push(['Prioridades atendidas por dia', ks.map(k => k.slice(8, 10) + '/' + k.slice(5, 7) + ': ' + porDia[k]).join(' · ')]);
-  }
-  if (temMeta) {                                 // quantos técnicos estão em cada meta (pela média por dia produzido)
-    const niv = [0, 0, 0, 0, 0]; let semMeta = 0;
-    lista.filter(t => t.ativo !== false).forEach(t => { if (Array.isArray(t.metasTipo)) niv[faixaTec(t)]++; else semMeta++; });
-    itens.push(['Técnicos abaixo da Meta I', niv[0]], ['Técnicos na Meta I', niv[1]], ['Técnicos na Meta II', niv[2]], ['Técnicos na Meta III', niv[3]], ['Técnicos na Meta IV', niv[4]]);
-    if (semMeta) itens.push(['Técnicos sem meta definida (Tipo)', semMeta]);
-  }
-  itens.forEach(([k, v]) => { const x = el('div'); x.appendChild(el('span', '', k)); x.appendChild(el('b', '', String(v))); dg.appendChild(x); });
+  desenharDetalhes(lista, s, nAtivos, temMeta, meta, fmtN, diario);
 
   $('filtroBtn').classList.toggle('on', state.periodo !== 'hoje' || !mesmoSet(state.sups, supsPadrao()) || state.ordem !== 'sup');
   pintarCabecalho();
@@ -823,6 +793,224 @@ function render() {
 
 // quantas metas (0 a 4) o técnico alcançou, pela média por dia produzido (mesma conta do servidor)
 const faixaTec = t => t.diasMeta ? t.metasTipo.map(Number).filter(m => (Number(t.media) || 0) + 1e-9 >= m).length : 0;
+
+/* ----- Mais detalhes: visão individual (técnico) e visão da equipe (supervisor / coordenador / controlador) ----- */
+// hoje no relógio de Fortaleza, em AAAA-MM-DD
+const hojeISO = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Fortaleza', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+// o período mostrado ainda pode receber produção (termina hoje ou depois)? usado para "com mais 1 dia trabalhado"
+function periodoAberto() {
+  if (state.periodo === 'hoje') return true;
+  if (state.periodo === 'ontem') return false;
+  const f = state.dados && state.dados.periodo && state.dados.periodo.fimBR, m = String(f || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return !!m && (m[3] + '-' + m[2] + '-' + m[1]) >= hojeISO();
+}
+const plural = (n, um, varios) => n + ' ' + (n === 1 ? um : varios);
+// o que falta para a próxima meta do técnico: { f: faixa atual (0 a 4), prox: 'Meta X' | null, falta, alvo, ant, mais1 (concluídos necessários em mais 1 dia) }
+function proximaMeta(t) {
+  const conc = Number(t.concl) || 0, dias = Math.max(1, t.diasMeta || 0);
+  if (Array.isArray(t.metasTipo) && t.metasTipo.length) {
+    const metas = t.metasTipo.map(Number), f = faixaTec(t);
+    const r = { f: f, tipo: true, metas: metas, dias: dias, prox: null };
+    if (f < metas.length) {
+      r.prox = 'Meta ' + ROMANOS[f]; r.alvo = metas[f] * dias; r.ant = f ? metas[f - 1] * dias : 0;
+      r.falta = Math.max(0, Math.ceil(r.alvo - conc - 1e-9));
+      r.mais1 = Math.max(0, Math.ceil(metas[f] * (dias + 1) - conc - 1e-9));
+    }
+    return r;
+  }
+  if (t.metaPer !== undefined && t.metaRef) {     // sem Tipo na aba Metas: só a meta padrão
+    const falta = Math.max(0, Math.ceil(t.metaPer - conc - 1e-9));
+    return { f: falta ? 0 : 1, tipo: false, prox: falta ? 'Meta padrão' : null, alvo: t.metaPer, ant: 0, falta: falta, mais1: Math.max(0, Math.ceil(t.metaRef * (dias + 1) - conc - 1e-9)), dias: dias };
+  }
+  return null;
+}
+function desenharDetalhes(lista, s, nAtivos, temMeta, meta, fmtN, diario) {
+  const dg = $('dgrid'); dg.innerHTML = ''; dg.className = 'dx';
+  const d = state.dados || {};
+  const sec = (titulo, cls) => { const b = el('section', 'dx-sec' + (cls ? ' ' + cls : '')); b.appendChild(el('h4', '', titulo)); dg.appendChild(b); return b; };
+  const grade = b => { const g = el('div', 'dx-tiles'); b.appendChild(g); return g; };
+  const tile = (g, rot, val, sub, cls) => {
+    const x = el('div', 'dx-t' + (cls ? ' ' + cls : ''));
+    x.appendChild(el('span', 'dx-l', rot)); x.appendChild(el('b', 'dx-v', String(val)));
+    if (sub) x.appendChild(el('small', 'dx-s', sub));
+    g.appendChild(x); return x;
+  };
+  const sinal = n => (n > 0 ? '+' : '') + fmtN(n);
+  const rotPer = d.periodo && d.periodo.rotulo ? d.periodo.rotulo : '';
+  const frT = fracExpediente();
+  const gapCls = g => g > 0 ? 'ok' : g < 0 ? 'bad' : '';
+
+  if (!lista.length) { dg.appendChild(el('p', 'dx-vazio', 'Sem dados para detalhar neste filtro.')); return; }
+
+  /* ================= TÉCNICO: só os números dele ================= */
+  if (ehTec()) {
+    const t = lista[0], conc = Number(t.concl) || 0, dias = t.dias || [];
+    const diasProd = t.diasProd !== undefined ? t.diasProd : dias.length;
+    const media = t.media !== undefined ? Number(t.media) || 0 : (diasProd ? conc / diasProd : 0);
+    const pm = proximaMeta(t);
+
+    // 1) quanto produziu
+    const a = sec('Sua produção' + (rotPer ? ' · ' + rotPer : '')), ga = grade(a);
+    tile(ga, 'Dias produzidos', diasProd, diasProd ? (state.periodo === 'hoje' ? 'hoje' : (diasProd === 1 ? 'dia com concluídos' : 'dias com concluídos')) : 'nenhum dia ainda');
+    tile(ga, 'Concluídos', conc, t.metaPer !== undefined ? 'meta do período: ' + fmtN(t.metaPer) : '', 'forte');
+    tile(ga, 'Média por dia trabalhado', fmtN(media), t.metaRef ? 'meta diária: ' + fmtN(t.metaRef) : (diasProd ? conc + ' em ' + plural(diasProd, 'dia', 'dias') : ''));
+    if (t.gap !== undefined) tile(ga, 'Gap do período', sinal(t.gap), t.gap > 0 ? 'acima da meta' : t.gap < 0 ? 'faltam ' + fmtN(-t.gap) + ' para a meta' : 'na meta', gapCls(t.gap));
+    if (frT) {
+      const pj = conc / frT;
+      tile(ga, 'Projeção do dia', fmtProj(pj), 'estimativa linear pelo ritmo de hoje');
+    }
+    const melhor = dias.length ? dias.reduce((m, x) => x.concl > m.concl ? x : m, dias[0]) : null;
+    if (melhor && dias.length > 1) tile(ga, 'Melhor dia', melhor.concl, melhor.d + (melhor.faixa > 0 ? ' · Meta ' + ROMANOS[melhor.faixa - 1] : ''));
+
+    // 2) próxima meta
+    if (pm) {
+      const b = sec('Próxima meta', 'dx-prox'), c = el('div', 'dx-card ' + (pm.prox ? '' : 'ok'));
+      if (!pm.prox) {
+        c.appendChild(el('b', 'dx-big', '🏆 ' + (pm.tipo ? 'Todas as metas atingidas' : 'Meta do período atingida')));
+        c.appendChild(el('p', 'dx-p', pm.tipo ? 'Você está na Meta ' + ROMANOS[pm.f - 1] + ' com ' + fmtN(media) + ' por dia trabalhado.' : 'Você já passou da meta do período (' + fmtN(t.metaPer) + ').'));
+      } else {
+        const atual = pm.f ? (pm.tipo ? 'Meta ' + ROMANOS[pm.f - 1] : '') : 'Abaixo da Meta I';
+        c.appendChild(el('b', 'dx-big', pm.falta === 0 ? '✔ ' + pm.prox + ' atingida' : 'Faltam ' + plural(pm.falta, 'concluída', 'concluídas') + ' para a ' + pm.prox));
+        const pct = pm.alvo > pm.ant ? Math.max(0, Math.min(100, (conc - pm.ant) / (pm.alvo - pm.ant) * 100)) : 100;
+        const bar = el('div', 'dx-bar'); bar.setAttribute('role', 'img');
+        bar.setAttribute('aria-label', conc + ' de ' + fmtN(pm.alvo) + ' concluídos para a ' + pm.prox + ' (' + Math.round(pct) + '%)');
+        const fi = el('i', 'dx-fill'); fi.style.width = pct.toFixed(1) + '%'; bar.appendChild(fi); c.appendChild(bar);
+        const lg = el('div', 'dx-barlg'); lg.appendChild(el('span', '', atual ? 'Agora: ' + atual : 'Agora: ' + conc)); lg.appendChild(el('span', '', conc + ' / ' + fmtN(pm.alvo))); c.appendChild(lg);
+        const ls = el('ul', 'dx-ul');
+        ls.appendChild(el('li', '', pm.tipo ? 'A ' + pm.prox + ' é ' + fmtN(pm.metas[pm.f]) + ' por dia trabalhado' + (pm.dias > 1 ? ' (' + fmtN(pm.alvo) + ' nos ' + pm.dias + ' dias)' : '') + '.' : 'Meta diária ' + fmtN(t.metaRef) + (pm.dias > 1 ? ' × ' + pm.dias + ' dias = ' + fmtN(pm.alvo) : '') + '.'));
+        if (pm.falta > 0 && state.periodo !== 'hoje' && periodoAberto()) ls.appendChild(el('li', '', 'Trabalhando mais 1 dia, você precisa fazer ' + plural(pm.mais1, 'concluída', 'concluídas') + ' nele para fechar a ' + pm.prox + '.'));
+        if (pm.falta > 0 && frT) {
+          const pj = conc / frT;
+          ls.appendChild(el('li', '', pj + 1e-9 >= pm.alvo ? 'No ritmo de hoje (projeção ' + fmtProj(pj) + ') você alcança a ' + pm.prox + '.' : 'No ritmo de hoje (projeção ' + fmtProj(pj) + ') ainda faltariam ' + fmtN(Math.max(0, Math.ceil(pm.alvo - pj - 1e-9))) + '.'));
+        }
+        if (pm.falta > 0 && state.periodo === 'hoje' && t.play !== 'na' && (t.agenda || 0) > 0) ls.appendChild(el('li', '', 'Você tem ' + plural(t.agenda, 'OS aberta', 'OS abertas') + ' na agenda' + (t.agenda >= pm.falta ? ': dá para chegar lá.' : ', menos do que o necessário.')));
+        c.appendChild(ls);
+      }
+      b.appendChild(c);
+    }
+
+    // 3) escada de metas (barra e quanto falta em cada uma)
+    const bm = blocoMetas(t); if (bm) { const b = sec('Todas as metas', 'dx-metas'); bm.removeChild(bm.firstChild); b.appendChild(bm); }
+
+    // 4) regularidade: em que faixa foi cada dia
+    if (dias.length > 1) {
+      const b = sec('Regularidade nos dias trabalhados'), g = grade(b);
+      if (dias.some(x => x.faixa !== null && x.faixa !== undefined)) {
+        const cont = [0, 0, 0, 0, 0]; dias.forEach(x => { cont[Math.min(4, Math.max(0, x.faixa || 0))]++; });
+        const bateu = dias.length - cont[0];
+        tile(g, 'Dias na Meta I ou mais', bateu + ' de ' + dias.length, Math.round(bateu / dias.length * 100) + '% dos dias', bateu === dias.length ? 'ok' : '');
+        const ch = el('div', 'dx-chips');
+        ['Abaixo da Meta I', 'Meta I', 'Meta II', 'Meta III', 'Meta IV'].forEach((n, i) => { if (cont[i]) ch.appendChild(el('span', 'dx-chip f' + i, n + ': ' + plural(cont[i], 'dia', 'dias'))); });
+        b.appendChild(ch);
+      }
+      const menor = dias.reduce((m, x) => x.concl < m.concl ? x : m, dias[0]);
+      tile(g, 'Pior dia', menor.concl, menor.d);
+    }
+
+    // 5) o que produziu (tipos de OS)
+    const p = sec('Tipos de OS'), gp = grade(p);
+    [['Instalação', t.inst], ['Reab. Inst.', t.reabInst], ['Prest. de contas', t.outros], ['Reab. prest. contas', t.reabOutros], ['Cancelados', t.cancel]].forEach(([k, v]) => tile(gp, k, v || 0, '', v ? '' : 'zero'));
+    tile(gp, 'Concluídos em atraso (SLA)', t.atraso || 0, '', t.atraso ? 'bad' : 'zero');
+
+    // 6) agenda e prioridades
+    const ag = sec('Agenda'), gg = grade(ag);
+    const sit = { play: 'Em play agora', parado: 'Agendado, sem play', fim: 'Agenda concluída', vazio: 'Sem agenda e sem conclusão', na: '-' }[t.play] || '-';
+    tile(gg, 'Situação', sit, t.play === 'play' ? plural(nPlay(t), 'OS em execução', 'OS em execução') : '');
+    if (t.play !== 'na') {
+      tile(gg, 'OS abertas na agenda', t.agenda || 0);
+      if (t.playAtr !== undefined) tile(gg, 'Atrasadas (em play / fora)', (t.playAtr || 0) + ' / ' + (t.agendaAtr || 0), '', (t.playAtr || t.agendaAtr) ? 'bad' : 'zero');
+    }
+    if (d.prioOk) { tile(gg, 'Prioridades pendentes', t.prioPend || 0, 'na sua agenda', t.prioPend ? 'warn' : 'zero'); tile(gg, 'Prioridades atendidas', t.prioAtend || 0, 'no período'); }
+    if (t.escTipo) tile(gg, 'Escala', t.escTipo === 'extra' ? 'Extra' : 'Escala', t.escCod || '');
+    return;
+  }
+
+  /* ================= SUPERVISOR / COORDENADOR / CONTROLADOR: a equipe ================= */
+  const ativos = lista.filter(t => t.ativo !== false);
+  const diasTot = lista.reduce((a, t) => a + (t.diasMeta || 0), 0);               // dias-técnico trabalhados
+  const mediaDia = diasTot ? s.concl / diasTot : 0;
+  const gapTot = Math.round((s.concl - meta) * 100) / 100;
+
+  // 1) resultado da equipe
+  const a = sec('Resultado da equipe' + (rotPer ? ' · ' + rotPer : '')), ga = grade(a);
+  tile(ga, 'Concluídos', s.concl, 'meta do período: ' + fmtN(meta), 'forte');
+  if ((diario || temMeta) && meta) {
+    tile(ga, 'Gap do período', sinal(gapTot), gapTot >= 0 ? 'meta batida (' + Math.round(s.concl / meta * 100) + '%)' : Math.round(s.concl / meta * 100) + '% da meta · faltam ' + fmtN(-gapTot), gapCls(gapTot));
+  }
+  tile(ga, 'Técnicos ativos', nAtivos + ' / ' + lista.length, lista.length - nAtivos ? plural(lista.length - nAtivos, 'inativo', 'inativos') + ' no filtro' : 'todos ativos');
+  tile(ga, 'Média por técnico ativo', nAtivos ? fmtN(s.concl / nAtivos) : '0', 'concluídos ÷ técnicos ativos');
+  if (diasTot && diasTot !== nAtivos) tile(ga, 'Média por dia trabalhado', fmtN(mediaDia), plural(diasTot, 'dia-técnico', 'dias-técnico') + ' no período');
+  if (frT) tile(ga, 'Projeção do dia', fmtProj(s.concl / frT), 'estimativa linear' + (meta ? ' · meta ' + fmtN(meta) : ''));
+
+  // 2) distribuição por meta
+  if (temMeta) {
+    const niv = [0, 0, 0, 0, 0]; let semMeta = 0;
+    ativos.forEach(t => { if (Array.isArray(t.metasTipo)) niv[faixaTec(t)]++; else semMeta++; });
+    const tot = niv.reduce((x, y) => x + y, 0), b = sec('Técnicos por meta');
+    if (tot) {
+      const bar = el('div', 'dx-stack'); bar.setAttribute('role', 'img');
+      const nomes = ['Abaixo da Meta I', 'Meta I', 'Meta II', 'Meta III', 'Meta IV'];
+      bar.setAttribute('aria-label', nomes.map((n, i) => n + ': ' + niv[i]).join(', '));
+      niv.forEach((n, i) => { if (n) { const sg = el('i', 'f' + i); sg.style.flexGrow = n; sg.title = nomes[i] + ': ' + n; bar.appendChild(sg); } });
+      b.appendChild(bar);
+    }
+    const g = grade(b);
+    [['Abaixo da Meta I', 0], ['Meta I', 1], ['Meta II', 2], ['Meta III', 3], ['Meta IV', 4]].forEach(([n, i]) => tile(g, n, niv[i], tot ? Math.round(niv[i] / tot * 100) + '% dos ativos' : '', 'f' + i + (niv[i] ? '' : ' zero')));
+    if (semMeta) tile(g, 'Sem meta definida (Tipo)', semMeta, 'usam a meta padrão');
+  }
+  const bn = sec('Situação do dia'), gn = grade(bn);
+  [['Em atenção', s.atencao, 'bad'], ['Em observação', s.obs, 'warn'], ['Normal', s.normal, 'ok'], ['Acima', s.acima, 'acc']].forEach(([k, v, c]) => tile(gn, k, v, '', v ? c : 'zero'));
+
+  // 3) quem precisa de atenção: perto da próxima meta e parados
+  const prox = ativos.map(t => ({ t: t, pm: proximaMeta(t) })).filter(x => x.pm && x.pm.prox && x.pm.falta > 0);
+  const lstLinha = (box, x, txt) => {
+    const b = el('button', 'dx-li'); b.type = 'button';
+    b.appendChild(el('span', 'dx-nm', tc(x.t.nome))); b.appendChild(el('b', '', txt));
+    b.addEventListener('click', () => abrirTecnico(x.t, b)); box.appendChild(b);
+  };
+  const perto = prox.slice().sort((x, y) => x.pm.falta - y.pm.falta || (y.t.concl - x.t.concl)).slice(0, 5);
+  if (perto.length) {
+    const b = sec('Mais perto da próxima meta'), ls = el('div', 'dx-list'); b.appendChild(ls);
+    perto.forEach(x => lstLinha(ls, x, 'faltam ' + x.pm.falta + ' p/ ' + x.pm.prox));
+  }
+  const baixo = prox.filter(x => x.pm.f === 0 && (x.t.diasMeta || 0) > 0).sort((x, y) => y.pm.falta - x.pm.falta).slice(0, 5);
+  if (baixo.length) {
+    const b = sec('Abaixo da Meta I · maior distância'), ls = el('div', 'dx-list'); b.appendChild(ls);
+    baixo.forEach(x => lstLinha(ls, x, x.t.concl + ' feitas · faltam ' + x.pm.falta));
+  }
+  const paradosL = lista.filter(t => t.play === 'vazio');
+  if (paradosL.length) {
+    const b = sec('Sem agenda e sem conclusão'), ls = el('div', 'dx-list'); b.appendChild(ls);
+    paradosL.slice(0, 8).forEach(t => lstLinha(ls, { t: t }, 'sem produção'));
+    if (paradosL.length > 8) b.appendChild(el('p', 'dx-mais', '+ ' + (paradosL.length - 8) + ' técnicos'));
+  }
+
+  // 4) operação: play e agenda
+  const bo = sec('Play e agenda'), go = grade(bo);
+  tile(go, 'Em play agora', lista.filter(t => t.play === 'play').length, 'técnicos executando');
+  tile(go, 'Agendados sem play', lista.filter(t => t.play === 'parado').length);
+  tile(go, 'Agenda concluída', lista.filter(t => t.play === 'fim').length);
+  tile(go, 'Sem agenda e sem conclusão', paradosL.length, '', paradosL.length ? 'warn' : 'zero');
+  tile(go, 'Em atraso (SLA)', s.atraso, 'concluídos fora do prazo', s.atraso ? 'bad' : 'zero');
+
+  // 5) produção por tipo
+  const bp = sec('Produção por tipo'), gp = grade(bp);
+  [['Instalação', s.inst], ['Reab. Inst.', s.reabI], ['Prest. de contas', s.outros], ['Reab. prest. contas', s.reabO], ['Cancelados', s.canc]].forEach(([k, v]) => tile(gp, k, v, '', v ? '' : 'zero'));
+
+  // 6) prioridades e escala
+  if (d.prioOk) {
+    const bq = sec('Prioridades'), gq = grade(bq);
+    tile(gq, 'Pendentes (agenda)', lista.reduce((x, t) => x + (t.prioPend || 0), 0));
+    tile(gq, 'Atendidas (período)', lista.reduce((x, t) => x + (t.prioAtend || 0), 0));
+    const porDia = {}; lista.forEach(t => (t.dias || []).forEach(x => { if (x.prio) porDia[x.iso] = (porDia[x.iso] || 0) + x.prio; }));
+    const ks = Object.keys(porDia).sort().slice(-7);
+    if (ks.length > 1) bq.appendChild(el('p', 'dx-p', 'Atendidas por dia: ' + ks.map(k => k.slice(8, 10) + '/' + k.slice(5, 7) + ': ' + porDia[k]).join(' · ')));
+  }
+  if (d.escala && d.escala.ok) {
+    const be = sec('Escala · ' + rotEsc(d.escala.data)), ge = grade(be);
+    tile(ge, 'Em escala', lista.filter(t => t.escTipo === 'escala').length); tile(ge, 'Em extra', lista.filter(t => t.escTipo === 'extra').length);
+  }
+}
 
 /* ----- comparativo no KPI Concluídos e projeção do dia (Etapa 13) ----- */
 function comparativoKpi(lista) {
