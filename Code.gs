@@ -106,6 +106,8 @@
  *   numero_2, cidade, bairro, rua, numero_casa, latitude, longitude, tipo_solicitacao, status_solicitacao,
  *   data_abertura, data_prazo, em_atraso, responsavel, em_play, cat_1..cat_5, atendente_origem,
  *   descricao_abertura, protocolo_os_original, equipe_solicitacao.
+ *
+ * GRAVAÇÃO (configurações, cadastros, Metas, Config, envio de arquivos, Escala e Prioridades): ver o bloco "GRAVAÇÃO SEGURA NO SERVIDOR" mais abaixo (doPost).
  */
 
 const ABA_BASE = 'Encerramentos';
@@ -291,7 +293,7 @@ function fazerLogin(p) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const u = autenticar(ss, p.login, p.senha);
   if (u) registrarAcesso(chave(p.login), true);               // entrada: grava na hora e tira a marca de "saiu"
-  return u ? { ok: true, usuario: usuarioPublico(u) } : negaLogin();
+  return u ? { ok: true, usuario: usuarioPublico(u), token: criarToken(p.login) } : negaLogin();   // token: usado nas ações de configuração (POST)
 }
 
 // Supervisores para o filtro: aba Supervisor (ativos) + supervisores citados na aba Técnicos que não estejam lá
@@ -1571,4 +1573,1094 @@ function testarControlador() {
     const n = tecs.filter(t => nomeKey(t.ref) === nomeKey(u.ref)).length;
     Logger.log(u.nome + ' | equipe (supervisor): ' + u.ref + ' | ' + n + ' técnicos ativos' + (u.login && u.senha ? '' : ' | SEM login/senha: não consegue entrar') + (u.ativo ? '' : ' | INATIVO'));
   });
+}
+
+/* =====================================================================
+ * GRAVAÇÃO SEGURA NO SERVIDOR (Etapas 1 a 5 do roteiro de configurações)
+ * ---------------------------------------------------------------------
+ * - Login devolve um TOKEN (CacheService, 6 h). As ações de configuração usam o token (POST), não repetem login e senha.
+ * - Toda gravação entra por doPost (JSON). A permissão é conferida NO SERVIDOR a cada ação:
+ *     coordenador : edita tudo (cadastros, Metas, Config) e envia arquivos
+ *     supervisor  : edita só a própria equipe (técnicos e controladores dele), envia arquivos; não vê Metas/Config
+ *     técnico / controlador : nenhuma gravação
+ * - Toda gravação usa LockService e confere a VERSÃO da linha (hash dos valores). Linha mudou na planilha = recusa e pede para recarregar.
+ * - Aba "Log_Alterações": data/hora, login, perfil, ação, aba, chave da linha, valor antigo, valor novo (senhas e código de acesso NUNCA vão para o log).
+ * - Depois de gravar: limparCache(). Antes de substituir conteúdo: backup em aba oculta "Backup_<aba>" (só o último) com restauração.
+ * - Leitura (doGet), classificação das OS, metas e login atuais não foram alterados.
+ * ===================================================================== */
+const ABA_LOG = 'Log_Alterações';
+const TOKEN_TTL_S = 21600;                 // 6 h (máximo do CacheService)
+const LOCK_ESPERA_MS = 25000;
+const LOG_COLS = ['Data/hora', 'Login', 'Perfil', 'Ação', 'Aba', 'Chave da linha', 'Valor antigo', 'Valor novo'];
+const GRUPOS_USR = [['coordenador', ABA_COORD], ['supervisor', ABA_SUP], ['controlador', ABA_CONTR], ['tecnico', ABA_TEC]];
+
+// erro "de negócio": a mensagem (em português) vai direto para a tela
+function ErroApp(msg, extra) { this.message = msg; this.extra = extra || {}; this.name = 'ErroApp'; }
+ErroApp.prototype = Object.create(Error.prototype);
+function erroResposta(err) {
+  if (err instanceof ErroApp) return Object.assign({ ok: false, error: err.message }, err.extra);
+  return { ok: false, error: 'Erro inesperado no servidor: ' + String(err && err.message || err) };
+}
+
+function doPost(e) {
+  try {
+    _SINC = null;
+    let b = null;
+    try { b = JSON.parse((e && e.postData && e.postData.contents) || ''); } catch (x) { b = null; }
+    if (!b || typeof b !== 'object') throw new ErroApp('Pedido inválido.');
+    return json(despachar(b));
+  } catch (err) { return json(erroResposta(err)); }
+}
+
+/* ---------- sessão por token ---------- */
+function criarToken(login) {
+  const tk = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '').toLowerCase();   // 64 caracteres hexadecimais
+  CacheService.getScriptCache().put('tk:' + tk, JSON.stringify({ l: chave(login), t: Date.now() }), TOKEN_TTL_S);
+  return tk;
+}
+// usuário ativo (lido direto da planilha, sem cache) pelo login
+function usuarioPorLogin(ss, login) {
+  const l = chave(login); if (!l) return null;
+  for (let g = 0; g < GRUPOS_USR.length; g++) {
+    const lista = lerUsuariosRaw(ss, GRUPOS_USR[g][1]), p = GRUPOS_USR[g][0];
+    for (let i = 0; i < lista.length; i++) {
+      const u = lista[i];
+      if (u.ativo && u.login && chave(u.login) === l) {
+        return { papel: p, nome: u.nome, login: u.login,
+          supervisor: p === 'tecnico' || p === 'controlador' ? u.ref : p === 'supervisor' ? u.nome : '',
+          coordenador: p === 'supervisor' ? u.ref : p === 'coordenador' ? u.nome : '' };
+      }
+    }
+  }
+  return null;
+}
+function sessaoDe(ss, b) {
+  const tk = String(b.token || '');
+  if (!/^[0-9a-f]{64}$/.test(tk)) throw new ErroApp('Sessão expirada. Entre novamente.', { sessao: true });
+  const raw = CacheService.getScriptCache().get('tk:' + tk);
+  if (!raw) throw new ErroApp('Sessão expirada. Entre novamente.', { sessao: true });
+  let info = null; try { info = JSON.parse(raw); } catch (x) {}
+  const usr = info && usuarioPorLogin(ss, info.l);
+  if (!usr) throw new ErroApp('Seu acesso foi desativado ou não existe mais.', { sessao: true });
+  const cfg = lerConfigRaw(ss);
+  if (cfg.codigo && String(b.codigo || '').trim() !== cfg.codigo) throw new ErroApp(b.codigo ? 'Código incorreto.' : 'Informe o código de acesso.', { auth: true });
+  return { usr: usr, token: tk };
+}
+function exigirPerfil(usr, perfis) {
+  if (perfis.indexOf(usr.papel) < 0) throw new ErroApp('Você não tem permissão para esta ação.', { permissao: true });
+}
+
+/* ---------- trava, versão, log, backup ---------- */
+function comTrava(fn) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(LOCK_ESPERA_MS)) throw new ErroApp('Outra pessoa está gravando agora. Tente de novo em alguns segundos.');
+  try { return fn(); } finally { try { lock.releaseLock(); } catch (x) {} }
+}
+function hex(bytes) { return bytes.map(b => ('0' + (b & 255).toString(16)).slice(-2)).join(''); }
+// versão de uma linha (ou de qualquer lista de valores): muda se qualquer célula mudar
+function versaoValores(vals) {
+  const s = JSON.stringify(vals.map(v => v instanceof Date ? 'D' + v.getTime() : v == null ? '' : v));
+  return hex(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, s, Utilities.Charset.UTF_8));
+}
+const MSG_CONFLITO = 'Esta linha foi alterada na planilha desde que a tela a carregou. Recarregue a lista e tente de novo.';
+function erroConflito(msg) { return new ErroApp(msg || MSG_CONFLITO, { conflito: true }); }
+
+function garantirLog(ss) {
+  let sh = ss.getSheetByName(ABA_LOG);
+  if (sh) return sh;
+  sh = ss.insertSheet(ABA_LOG);
+  sh.getRange(1, 1, 1, LOG_COLS.length).setValues([LOG_COLS]).setFontWeight('bold');
+  sh.setFrozenRows(1);
+  sh.getRange('A:A').setNumberFormat('dd/MM/yyyy HH:mm:ss');
+  return sh;
+}
+// texto seguro para o log: limita o tamanho e impede que vire fórmula na planilha
+function txtLog(v) {
+  let s = v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+  if (s.length > 1500) s = s.slice(0, 1500) + '…';
+  return /^[=+\-@]/.test(s) ? ' ' + s : s;
+}
+function linhaDeLog(usr, acao, aba, chaveLinha, antigo, novo, quando) {
+  return [quando || new Date(), txtLog(usr.login), txtLog(usr.papel), txtLog(acao), txtLog(aba), txtLog(chaveLinha), txtLog(antigo), txtLog(novo)];
+}
+function registrarLog(ss, usr, acao, aba, chaveLinha, antigo, novo) {
+  garantirLog(ss).appendRow(linhaDeLog(usr, acao, aba, chaveLinha, antigo, novo));
+}
+// descreve só os campos alterados; senha e código de acesso nunca aparecem (só "[alterada]")
+const CAMPOS_SECRETOS = { senha: 1, codigo: 1 };
+function descreverCampos(reg, campos) {
+  return campos.map(k => k + ': ' + (CAMPOS_SECRETOS[k] ? '[oculta]' : reg[k] === true ? 'SIM' : reg[k] === false ? 'NÃO' : (reg[k] == null ? '' : reg[k]))).join('; ');
+}
+
+const nomeBackup = aba => 'Backup_' + aba;
+/** Copia a aba para uma aba oculta "Backup_<aba>" (só o último backup de cada aba é guardado). */
+function fazerBackup(ss, aba, extra) {
+  const sh = ss.getSheetByName(aba);
+  if (!sh) throw new ErroApp('A aba ' + aba + ' não foi encontrada.');
+  const nome = nomeBackup(aba), antigo = ss.getSheetByName(nome);
+  if (antigo) ss.deleteSheet(antigo);
+  const c = sh.copyTo(ss); c.setName(nome); c.hideSheet();
+  try { PropertiesService.getScriptProperties().setProperty('bk:' + aba, JSON.stringify(Object.assign({ t: Date.now() }, extra || {}))); } catch (x) {}
+  return c;
+}
+function infoBackup(ss, aba) {
+  if (!ss.getSheetByName(nomeBackup(aba))) return null;
+  let m = null; try { m = JSON.parse(PropertiesService.getScriptProperties().getProperty('bk:' + aba) || 'null'); } catch (x) {}
+  return { t: m && m.t || null, login: m && m.login || '', acao: m && m.acao || '', modo: m && m.modo || '' };
+}
+/** Devolve o conteúdo do último backup para a aba (substitui o conteúdo atual). */
+function restaurarBackup(ss, aba) {
+  const bk = ss.getSheetByName(nomeBackup(aba)), sh = ss.getSheetByName(aba);
+  if (!bk) throw new ErroApp('Não há backup da aba ' + aba + '.');
+  if (!sh) throw new ErroApp('A aba ' + aba + ' não foi encontrada.');
+  const lr = bk.getLastRow(), lc = bk.getLastColumn();
+  sh.clearContents();
+  if (lr > 0 && lc > 0) bk.getRange(1, 1, lr, lc).copyTo(sh.getRange(1, 1));
+}
+function garantirTamanho(sh, linhas, colunas) {
+  if (linhas > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), linhas - sh.getMaxRows());
+  if (colunas > sh.getMaxColumns()) sh.insertColumnsAfter(sh.getMaxColumns(), colunas - sh.getMaxColumns());
+}
+// grava texto sem deixar a planilha converter (zeros à esquerda, datas, números, fórmulas)
+function gravarTexto(sh, linha, coluna, v) { garantirTamanho(sh, linha, coluna); sh.getRange(linha, coluna).setNumberFormat('@').setValue(String(v == null ? '' : v)); }
+
+/* ---------- despacho das ações (todas por POST) ---------- */
+const ACOES = {
+  cad_listar:      { perfis: ['coordenador', 'supervisor'], fn: acaoCadListar },
+  cad_salvar:      { perfis: ['coordenador', 'supervisor'], fn: acaoCadSalvar, grava: true },
+  cad_ativo:       { perfis: ['coordenador', 'supervisor'], fn: acaoCadAtivo, grava: true },
+  metas_listar:    { perfis: ['coordenador'], fn: acaoMetasListar },
+  metas_salvar:    { perfis: ['coordenador'], fn: acaoMetasSalvar, grava: true },
+  metas_remover:   { perfis: ['coordenador'], fn: acaoMetasRemover, grava: true },
+  config_ler:      { perfis: ['coordenador'], fn: acaoConfigLer },
+  config_salvar:   { perfis: ['coordenador'], fn: acaoConfigSalvar, grava: true },
+  envio_info:      { perfis: ['coordenador', 'supervisor'], fn: acaoEnvioInfo },
+  envio_iniciar:   { perfis: ['coordenador', 'supervisor'], fn: acaoEnvioIniciar, grava: true, semCache: true },
+  envio_lote:      { perfis: ['coordenador', 'supervisor'], fn: acaoEnvioLote, grava: true, semCache: true },
+  envio_previa:    { perfis: ['coordenador', 'supervisor'], fn: acaoEnvioPrevia },
+  envio_confirmar: { perfis: ['coordenador', 'supervisor'], fn: acaoEnvioConfirmar, grava: true },
+  envio_cancelar:  { perfis: ['coordenador', 'supervisor'], fn: acaoEnvioCancelar, grava: true, semCache: true },
+  envio_desfazer:  { perfis: ['coordenador', 'supervisor'], fn: acaoEnvioDesfazer, grava: true },
+  prio_listar:     { perfis: ['coordenador', 'supervisor'], fn: acaoPrioListar },
+  prio_salvar:     { perfis: ['coordenador', 'supervisor'], fn: acaoPrioSalvar, grava: true },
+  escala_listar:   { perfis: ['coordenador', 'supervisor'], fn: acaoEscalaListar },
+  escala_salvar:   { perfis: ['coordenador', 'supervisor'], fn: acaoEscalaSalvar, grava: true },
+  escala_novo:     { perfis: ['coordenador', 'supervisor'], fn: acaoEscalaNovo, grava: true }
+};
+function despachar(b) {
+  const acao = String(b.acao || '');
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (acao === 'login') {                                          // entrada por POST: login e senha vão no corpo, não na URL
+    const u = autenticar(ss, b.login, b.senha);
+    if (!u) return negaLogin();
+    registrarAcesso(chave(b.login), true);
+    return { ok: true, usuario: usuarioPublico(u), token: criarToken(b.login) };
+  }
+  if (acao === 'logout') { try { CacheService.getScriptCache().remove('tk:' + String(b.token || '')); } catch (x) {} return { ok: true }; }
+  const def = ACOES[acao];
+  if (!def) throw new ErroApp('Ação desconhecida.');
+  const s = sessaoDe(ss, b);
+  exigirPerfil(s.usr, def.perfis);                                 // permissão SEMPRE no servidor, nunca só escondendo botões
+  if (!def.grava) return def.fn(ss, s.usr, b);
+  try { return comTrava(() => def.fn(ss, s.usr, b)); }
+  finally { if (!def.semCache) limparCache(); }                    // a mudança vale na hora
+}
+
+/* =====================================================================
+ * CADASTROS (Etapa 2): Técnicos, Controladores, Supervisores e Coordenadores
+ * ===================================================================== */
+const CAD = {
+  tecnico:     { aba: ABA_TEC,   rot: 'Técnico',     refRot: 'Supervisor',  refAba: ABA_SUP,   temTipo: true,  nomeCab: ['tecnico', 'tecnicos', 'nome'], refCab: ['supervisor'] },
+  controlador: { aba: ABA_CONTR, rot: 'Controlador', refRot: 'Supervisor',  refAba: ABA_SUP,   temTipo: false, nomeCab: ['controlador', 'nome'],         refCab: ['supervisor'] },
+  supervisor:  { aba: ABA_SUP,   rot: 'Supervisor',  refRot: 'Coordenador', refAba: ABA_COORD, temTipo: false, nomeCab: ['supervisor', 'nome'],          refCab: ['coordenador'] },
+  coordenador: { aba: ABA_COORD, rot: 'Coordenador', refRot: 'CEO',         refAba: '',        temTipo: false, nomeCab: ['coordenador', 'nome'],         refCab: ['ceo'] }
+};
+function defCad(k) { const d = CAD[String(k || '')]; if (!d) throw new ErroApp('Cadastro desconhecido.'); return d; }
+// mesma lógica de colunas de lerUsuariosRaw: pelo nome do cabeçalho, com a posição como alternativa
+function colunasCad(def, cab) {
+  const k = cab.map(chaveH);
+  const ix = (nomes, fb) => { for (let i = 0; i < nomes.length; i++) { const p = k.indexOf(nomes[i]); if (p >= 0) return p; } return fb; };
+  return { nome: ix(def.nomeCab, 0), ref: ix(def.refCab, 1), login: ix(['login', 'usuario'], 2), senha: ix(['senha'], 3), ativo: ix(['ativo', 'ativa'], 4), tipo: def.temTipo ? ix(['tipo'], -1) : -1 };
+}
+const textoCel = v => String(v == null ? '' : v).trim();
+function regDe(r, ix) {
+  return { nome: corrigeTexto(r[ix.nome]).trim(), ref: corrigeTexto(r[ix.ref]).trim(), tipo: ix.tipo >= 0 ? corrigeTexto(r[ix.tipo]).trim() : '',
+           login: textoCel(r[ix.login]), senha: textoCel(r[ix.senha]), ativo: ehAtivo(r[ix.ativo]) };
+}
+/** Lê a aba de cadastro direto da planilha: [{ linha (1 = cabeçalho), versao, reg }]. */
+function lerLinhasCad(ss, cadKey) {
+  const def = defCad(cadKey), sh = ss.getSheetByName(def.aba);
+  if (!sh) throw new ErroApp('A aba ' + def.aba + ' não foi encontrada.');
+  const v = sh.getLastRow() < 1 ? [] : sh.getDataRange().getValues();
+  if (!v.length) throw new ErroApp('A aba ' + def.aba + ' está sem cabeçalho.');
+  const ix = colunasCad(def, v[0]), linhas = [];
+  let ultima = 1;
+  for (let i = 1; i < v.length; i++) {
+    const reg = regDe(v[i], ix);
+    if (!reg.nome) continue;
+    ultima = i + 1;
+    linhas.push({ linha: i + 1, versao: versaoValores(v[i]), reg: reg });
+  }
+  return { def: def, sh: sh, ix: ix, largura: v[0].length, linhas: linhas, proxima: ultima + 1 };
+}
+function nomesAtivos(ss, aba) { return lerUsuariosRaw(ss, aba).filter(u => u.ativo).map(u => u.nome); }
+function tiposDeMetas(ss) {
+  const sh = ss.getSheetByName(ABA_METAS);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const vistos = {}, out = [];
+  sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().forEach(r => { const n = corrigeTexto(r[0]).trim(), k = chave(n); if (n && !vistos[k]) { vistos[k] = 1; out.push(n); } });
+  return out;
+}
+
+// quem pode ver / editar o quê (testado em testarPermissoes)
+function podeVerCad(usr, cadKey) {
+  if (usr.papel === 'coordenador') return true;
+  return usr.papel === 'supervisor' && (cadKey === 'tecnico' || cadKey === 'controlador');
+}
+function ehDaEquipe(usr, reg) { return usr.papel === 'supervisor' && !!usr.nome && nomeKey(reg.ref) === nomeKey(usr.nome); }
+function podeEditarRegistro(usr, cadKey, reg) {
+  if (!podeVerCad(usr, cadKey)) return false;
+  if (usr.papel === 'coordenador') return true;
+  return !!reg && ehDaEquipe(usr, reg);              // supervisor: só técnicos/controladores vinculados a ele
+}
+function exigirVerCad(usr, cadKey) { if (!podeVerCad(usr, cadKey)) throw new ErroApp('Você não tem permissão para este cadastro.', { permissao: true }); }
+
+function acaoCadListar(ss, usr, b) {
+  const cadKey = String(b.cad || ''), def = defCad(cadKey);
+  exigirVerCad(usr, cadKey);
+  const L = lerLinhasCad(ss, cadKey);
+  const linhas = L.linhas.filter(x => podeEditarRegistro(usr, cadKey, x.reg))
+    .map(x => ({ linha: x.linha, versao: x.versao, nome: x.reg.nome, ref: x.reg.ref, tipo: x.reg.tipo, login: x.reg.login, senha: x.reg.senha, ativo: x.reg.ativo }));
+  const refs = def.refAba ? (usr.papel === 'supervisor' ? [usr.nome] : nomesAtivos(ss, def.refAba)) : [];
+  return { ok: true, cad: cadKey, rot: def.rot, refRot: def.refRot, refLista: def.refAba ? true : false, refs: refs,
+           temTipo: def.temTipo && L.ix.tipo >= 0, tipos: def.temTipo ? tiposDeMetas(ss) : [], linhas: linhas, equipeFixa: usr.papel === 'supervisor' ? usr.nome : '' };
+}
+function normalizarDadosCad(d) {
+  d = d || {};
+  return { nome: textoCel(d.nome), ref: textoCel(d.ref), tipo: textoCel(d.tipo), login: textoCel(d.login), senha: textoCel(d.senha),
+           ativo: d.ativo === false || nomeKey(d.ativo) === 'NAO' ? false : true };
+}
+function loginEmUso(ss, login, abaIgnorar, linhaIgnorar) {
+  const l = chave(login); if (!l) return false;
+  for (let g = 0; g < GRUPOS_USR.length; g++) {
+    const aba = GRUPOS_USR[g][1], sh = ss.getSheetByName(aba);
+    if (!sh || sh.getLastRow() < 2) continue;
+    const v = sh.getDataRange().getValues(), cab = v[0].map(chaveH);
+    let iLog = cab.indexOf('login'); if (iLog < 0) iLog = cab.indexOf('usuario'); if (iLog < 0) iLog = 2;
+    for (let i = 1; i < v.length; i++) {
+      if (aba === abaIgnorar && i + 1 === linhaIgnorar) continue;
+      if (chave(textoCel(v[i][iLog])) === l) return true;
+    }
+  }
+  return false;
+}
+/**
+ * Núcleo da gravação de cadastro. patch = só os campos a mudar (cad_ativo) ou todos (cad_salvar).
+ * Roda dentro da trava. Confere permissão, versão da linha e todas as validações antes de escrever.
+ */
+function gravarCadastro(ss, usr, cadKey, b, patch, acaoLog) {
+  const def = defCad(cadKey);
+  exigirVerCad(usr, cadKey);
+  const L = lerLinhasCad(ss, cadKey), linha = b.linha ? Number(b.linha) : 0;
+  let atual = null;
+  if (linha) {
+    const x = L.linhas.find(y => y.linha === linha);
+    if (!x) throw erroConflito('Esta linha não existe mais na planilha. Recarregue a lista.');
+    if (String(b.versao || '') !== x.versao) throw erroConflito();
+    if (!podeEditarRegistro(usr, cadKey, x.reg)) throw new ErroApp('Você só pode editar pessoas da sua própria equipe.', { permissao: true });
+    atual = x.reg;
+  }
+  const novo = Object.assign({}, atual || { nome: '', ref: '', tipo: '', login: '', senha: '', ativo: true }, patch);
+  if (usr.papel === 'supervisor') {                    // equipe sempre a dele, mesmo que a tela tente outra
+    if (!atual && patch.ref && nomeKey(patch.ref) !== nomeKey(usr.nome)) throw new ErroApp('Você só pode cadastrar pessoas na sua própria equipe.', { permissao: true });
+    if (atual && patch.ref != null && nomeKey(patch.ref) !== nomeKey(atual.ref)) throw new ErroApp('Você não pode mudar a pessoa para outra equipe.', { permissao: true });
+    novo.ref = atual ? atual.ref : usr.nome;
+  }
+  // ---- validações ----
+  if (!nomeKey(novo.nome)) throw new ErroApp('Informe o nome.');
+  if (novo.nome.length > 120) throw new ErroApp('O nome está muito longo.');
+  if (!atual || nomeKey(novo.nome) !== nomeKey(atual.nome)) {
+    if (L.linhas.some(y => y.linha !== linha && nomeKey(y.reg.nome) === nomeKey(novo.nome))) throw new ErroApp('Já existe alguém com esse nome nesta aba.');
+  }
+  if (/\s/.test(novo.login)) throw new ErroApp('O login não pode ter espaços.');
+  if (novo.login.length > 60) throw new ErroApp('O login está muito longo.');
+  if (!!novo.login !== !!novo.senha) throw new ErroApp('Preencha login e senha juntos (ou deixe os dois vazios).');
+  if (novo.login && (!atual || chave(novo.login) !== chave(atual.login)) && loginEmUso(ss, novo.login, def.aba, linha)) throw new ErroApp('Esse login já está em uso em outra pessoa.');
+  if (def.refAba) {
+    if (!novo.ref) throw new ErroApp('Escolha o ' + def.refRot.toLowerCase() + '.');
+    const mudou = !atual || nomeKey(novo.ref) !== nomeKey(atual.ref);
+    if (mudou && !nomesAtivos(ss, def.refAba).some(n => nomeKey(n) === nomeKey(novo.ref))) throw new ErroApp(def.refRot + ' não existe ou está inativo.');
+  }
+  if (def.temTipo && L.ix.tipo >= 0 && novo.tipo && (!atual || chave(novo.tipo) !== chave(atual.tipo)) && !tiposDeMetas(ss).some(t => chave(t) === chave(novo.tipo))) throw new ErroApp('Tipo inexistente na aba Metas.');
+  if (atual && !novo.ativo && atual.ativo && usr.login && chave(atual.login) === chave(usr.login)) throw new ErroApp('Você não pode desativar o seu próprio acesso.');
+  // ---- o que mudou ----
+  const campos = ['nome', 'ref', 'tipo', 'login', 'senha', 'ativo'].filter(k => k !== 'tipo' || (def.temTipo && L.ix.tipo >= 0));
+  const mudados = atual ? campos.filter(k => (k === 'ativo' ? novo.ativo !== atual.ativo : novo[k] !== atual[k])) : campos;
+  if (atual && !mudados.length) return { ok: true, semMudanca: true, linha: linha, versao: String(b.versao) };
+  // ---- gravação (só as células que mudaram; o resto da linha, colunas extras e fórmulas, fica como está) ----
+  garantirLog(ss);
+  const alvo = linha || L.proxima;
+  const colunaDe = { nome: L.ix.nome, ref: L.ix.ref, tipo: L.ix.tipo, login: L.ix.login, senha: L.ix.senha, ativo: L.ix.ativo };
+  mudados.forEach(k => { if (colunaDe[k] >= L.largura && (k === 'ativo' || k === 'login' || k === 'senha')) throw new ErroApp('A aba ' + def.aba + ' não tem a coluna ' + (k === 'ativo' ? 'Ativo' : k === 'login' ? 'Login' : 'Senha') + '.'); });
+  mudados.forEach(k => {
+    if (k === 'ativo') { garantirTamanho(L.sh, alvo, colunaDe.ativo + 1); L.sh.getRange(alvo, colunaDe.ativo + 1).setValue(novo.ativo ? 'SIM' : 'NÃO'); }
+    else gravarTexto(L.sh, alvo, colunaDe[k] + 1, novo[k]);
+  });
+  const dep = L.sh.getRange(alvo, 1, 1, L.largura).getValues()[0];
+  registrarLog(ss, usr, acaoLog || (atual ? 'editar' : 'adicionar'), def.aba, novo.nome + ' (linha ' + alvo + ')', atual ? descreverCampos(atual, mudados) : '', descreverCampos(novo, mudados));
+  return { ok: true, linha: alvo, versao: versaoValores(dep), novo: !atual };
+}
+function acaoCadSalvar(ss, usr, b) {
+  const d = normalizarDadosCad(b.dados), cadKey = String(b.cad || ''), def = defCad(cadKey);
+  const patch = { nome: d.nome, ref: d.ref, login: d.login, senha: d.senha, ativo: d.ativo };
+  if (def.temTipo) patch.tipo = d.tipo;
+  return gravarCadastro(ss, usr, cadKey, b, patch, b.linha ? 'editar' : 'adicionar');
+}
+function acaoCadAtivo(ss, usr, b) {
+  if (!b.linha) throw new ErroApp('Linha inválida.');
+  const ativo = b.ativo === true || b.ativo === 'true';
+  return gravarCadastro(ss, usr, String(b.cad || ''), b, { ativo: ativo }, ativo ? 'ativar' : 'desativar');
+}
+
+/* =====================================================================
+ * METAS e CONFIG (Etapa 3): só coordenador
+ * ===================================================================== */
+function acaoMetasListar(ss, usr, b) {
+  const sh = ss.getSheetByName(ABA_METAS);
+  if (!sh) throw new ErroApp('A aba ' + ABA_METAS + ' não foi encontrada.');
+  const v = sh.getLastRow() < 1 ? [] : sh.getDataRange().getValues();
+  const tecs = lerUsuariosRaw(ss, ABA_TEC), itens = [];
+  for (let i = 1; i < v.length; i++) {
+    const tipo = corrigeTexto(v[i][0]).trim(); if (!tipo) continue;
+    const usam = tecs.filter(t => chave(t.tipo) === chave(tipo));
+    itens.push({ linha: i + 1, versao: versaoValores(v[i]), tipo: tipo, v: [1, 2, 3, 4].map(j => v[i][j] == null ? '' : v[i][j]),
+                 usamAtivos: usam.filter(t => t.ativo).length, usamTotal: usam.length });
+  }
+  return { ok: true, itens: itens, backup: infoBackup(ss, ABA_METAS) };
+}
+const fmtNumPT = n => String(Math.round(n * 100) / 100).replace('.', ',');
+function validarMetaValores(vals, tipo) {
+  const out = [];
+  for (let j = 0; j < 4; j++) {
+    const n = numPT(vals[j]);
+    if (n == null || String(vals[j] == null ? '' : vals[j]).trim() === '') throw new ErroApp('Preencha todas as metas de "' + tipo + '".');
+    if (n < 0 || n > 1000) throw new ErroApp('Meta fora do intervalo permitido em "' + tipo + '".');
+    out.push(Math.round(n * 100) / 100);
+  }
+  for (let j = 1; j < 4; j++) if (out[j] < out[j - 1]) throw new ErroApp('Em "' + tipo + '" é preciso Meta I ≤ Meta II ≤ Meta III ≤ Meta IV.');
+  return out;
+}
+function acaoMetasSalvar(ss, usr, b) {
+  const sh = ss.getSheetByName(ABA_METAS);
+  if (!sh) throw new ErroApp('A aba ' + ABA_METAS + ' não foi encontrada.');
+  const itens = Array.isArray(b.itens) ? b.itens : [];
+  if (!itens.length) throw new ErroApp('Nada para salvar.');
+  const v = sh.getLastRow() < 1 ? [] : sh.getDataRange().getValues();
+  let ultima = 1; for (let i = 1; i < v.length; i++) if (corrigeTexto(v[i][0]).trim()) ultima = i + 1;
+  const tiposAtuais = {}; for (let i = 1; i < v.length; i++) { const t = corrigeTexto(v[i][0]).trim(); if (t) tiposAtuais[chave(t)] = i + 1; }
+  const plano = [], novos = {}; let prox = ultima + 1;
+  itens.forEach(it => {
+    const tipo = corrigeTexto(it.tipo).trim(), k = chave(tipo);
+    if (!tipo) throw new ErroApp('Informe o nome do tipo.');
+    if (tipo.length > 60) throw new ErroApp('O nome do tipo está muito longo.');
+    const vals = validarMetaValores(it.v || [], tipo), linha = it.linha ? Number(it.linha) : 0;
+    if (linha) {
+      const r = v[linha - 1];
+      if (!r || chave(corrigeTexto(r[0])) !== k) throw erroConflito('O tipo "' + tipo + '" mudou na planilha. Recarregue a lista.');
+      if (String(it.versao || '') !== versaoValores(r)) throw erroConflito('O tipo "' + tipo + '" foi alterado na planilha. Recarregue a lista e tente de novo.');
+      plano.push({ linha: linha, tipo: tipo, vals: vals, antigo: [1, 2, 3, 4].map(j => r[j]), novo: false });
+    } else {
+      if (tiposAtuais[k] || novos[k]) throw new ErroApp('Já existe o tipo "' + tipo + '".');
+      novos[k] = 1;
+      plano.push({ linha: prox++, tipo: tipo, vals: vals, antigo: null, novo: true });
+    }
+  });
+  garantirLog(ss);
+  plano.forEach(p => {
+    if (p.novo) gravarTexto(sh, p.linha, 1, p.tipo);
+    garantirTamanho(sh, p.linha, 5);
+    sh.getRange(p.linha, 2, 1, 4).setValues([p.vals]);
+    registrarLog(ss, usr, p.novo ? 'metas: adicionar tipo' : 'metas: editar', ABA_METAS, p.tipo + ' (linha ' + p.linha + ')',
+      p.antigo ? 'I-IV: ' + p.antigo.join(' / ') : '', 'I-IV: ' + p.vals.map(fmtNumPT).join(' / '));
+  });
+  return { ok: true, gravados: plano.length };
+}
+function acaoMetasRemover(ss, usr, b) {
+  const sh = ss.getSheetByName(ABA_METAS);
+  if (!sh) throw new ErroApp('A aba ' + ABA_METAS + ' não foi encontrada.');
+  const linha = Number(b.linha) || 0, v = sh.getLastRow() < 1 ? [] : sh.getDataRange().getValues(), r = v[linha - 1];
+  if (!linha || linha < 2 || !r || !corrigeTexto(r[0]).trim()) throw erroConflito('O tipo não existe mais na planilha. Recarregue a lista.');
+  if (String(b.versao || '') !== versaoValores(r)) throw erroConflito('O tipo foi alterado na planilha. Recarregue a lista e tente de novo.');
+  const tipo = corrigeTexto(r[0]).trim();
+  const usam = lerUsuariosRaw(ss, ABA_TEC).filter(t => chave(t.tipo) === chave(tipo));
+  if (usam.length && !b.confirmo) throw new ErroApp(usam.length + ' técnico(s) usam o tipo "' + tipo + '". Confirme a remoção.', { precisaConfirmar: true, usam: usam.length });
+  garantirLog(ss);
+  fazerBackup(ss, ABA_METAS, { login: usr.login, acao: 'remover tipo' });
+  sh.deleteRow(linha);
+  registrarLog(ss, usr, 'metas: remover tipo', ABA_METAS, tipo + ' (linha ' + linha + ')', 'I-IV: ' + [1, 2, 3, 4].map(j => r[j]).join(' / ') + '; técnicos que usavam: ' + usam.length, '');
+  return { ok: true, usavam: usam.length };
+}
+
+// campos da aba Config (nome | valor). A tela só mexe nestes; qualquer outra linha da aba fica como está.
+const CFG_CAMPOS = [
+  { k: 'codigo',     nome: 'Código de acesso',          cab: 'codigo de acesso',          tipo: 'texto' },
+  { k: 'metaNormal', nome: 'Meta normal (por dia)',     cab: 'meta normal (por dia)',     tipo: 'num' },
+  { k: 'metaObs',    nome: 'Meta observação (por dia)', cab: 'meta observacao (por dia)', tipo: 'num' },
+  { k: 'metaGap',    nome: 'Meta do gap (1 a 4)',       cab: 'meta do gap (1 a 4)',       tipo: 'gap' },
+  { k: 'metaPadrao', nome: 'Meta padrao (por dia)',     cab: 'meta padrao (por dia)',     tipo: 'num' },
+  { k: 'titulo',     nome: 'Titulo',                    cab: 'titulo',                    tipo: 'texto' },
+  { k: 'subtitulo',  nome: 'Subtitulo',                 cab: 'subtitulo',                 tipo: 'texto' },
+  { k: 'expedIni',   nome: 'Inicio expediente',         cab: 'inicio expediente',         tipo: 'hora' },
+  { k: 'expedFim',   nome: 'Fim expediente',            cab: 'fim expediente',            tipo: 'hora' }
+];
+function lerConfigSheet(ss) {
+  const sh = ss.getSheetByName(ABA_CFG);
+  if (!sh) throw new ErroApp('A aba ' + ABA_CFG + ' não foi encontrada.');
+  const v = sh.getLastRow() < 1 ? [] : sh.getRange(1, 1, sh.getLastRow(), 2).getValues();
+  const linhas = {}; let ultima = 1;
+  for (let i = 1; i < v.length; i++) { const k = chave(v[i][0]); if (k) { if (!linhas[k]) linhas[k] = i + 1; ultima = i + 1; } else if (v[i][1] !== '') ultima = i + 1; }
+  return { sh: sh, v: v, linhas: linhas, proxima: ultima + 1, versao: versaoValores([].concat.apply([], v)) };
+}
+function valorCfgTela(ss, c, bruto) {
+  if (bruto == null) return '';
+  if (c.tipo === 'hora') return horaCfg(ss, bruto, '');
+  return bruto instanceof Date ? '' : String(bruto).trim();
+}
+function acaoConfigLer(ss, usr, b) {
+  const C = lerConfigSheet(ss), campos = CFG_CAMPOS.map(c => {
+    const l = C.linhas[c.cab];
+    return { k: c.k, nome: c.nome, tipo: c.tipo, existe: !!l, valor: l ? valorCfgTela(ss, c, C.v[l - 1][1]) : '' };
+  });
+  return { ok: true, versao: C.versao, campos: campos };
+}
+function validarCfgValor(c, valor) {
+  const t = String(valor == null ? '' : valor).trim();
+  if (c.tipo === 'texto') { if (c.k === 'titulo' && !t) throw new ErroApp('Informe o título.'); if (t.length > 200) throw new ErroApp('Texto muito longo em "' + c.nome + '".'); return t; }
+  if (c.tipo === 'hora') {
+    const m = t.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m || +m[1] > 23 || +m[2] > 59) throw new ErroApp('Horário inválido em "' + c.nome + '". Use HH:MM (ex.: 08:00).');
+    return ('0' + m[1]).slice(-2) + ':' + m[2];
+  }
+  const n = numPT(t);
+  if (n == null || t === '') throw new ErroApp('Informe um número válido em "' + c.nome + '".');
+  if (c.tipo === 'gap') { if (n !== Math.round(n) || n < 1 || n > 4) throw new ErroApp('"' + c.nome + '" precisa ser 1, 2, 3 ou 4.'); return n; }
+  if (n < 0 || n > 1000) throw new ErroApp('Valor fora do intervalo em "' + c.nome + '".');
+  return Math.round(n * 100) / 100;
+}
+function acaoConfigSalvar(ss, usr, b) {
+  const C = lerConfigSheet(ss);
+  if (String(b.versao || '') !== C.versao) throw erroConflito('A aba Config foi alterada na planilha desde que a tela a carregou. Recarregue e tente de novo.');
+  const val = b.valores || {}, mudancas = [];
+  CFG_CAMPOS.forEach(c => {
+    if (!(c.k in val)) return;
+    const novo = validarCfgValor(c, val[c.k]), l = C.linhas[c.cab];
+    const antigo = l ? valorCfgTela(ss, c, C.v[l - 1][1]) : '';
+    const igual = c.tipo === 'num' || c.tipo === 'gap' ? (antigo !== '' && numPT(antigo) === novo) : String(novo) === antigo;
+    if (!igual) mudancas.push({ c: c, novo: novo, antigo: antigo, linha: l || 0 });
+  });
+  const cfgDe = k => CFG_CAMPOS.find(c => c.k === k);
+  const final = k => { const m = mudancas.find(x => x.c.k === k); if (m) return m.novo; const l = C.linhas[cfgDe(k).cab]; return l ? valorCfgTela(ss, cfgDe(k), C.v[l - 1][1]) : ''; };
+  if ((final('expedIni') || '08:00') >= (final('expedFim') || '18:00')) throw new ErroApp('O início do expediente precisa ser antes do fim.');
+  if (mudancas.some(m => m.c.k === 'codigo') && !b.confirmoCodigo) throw new ErroApp('Mudar o código de acesso exige confirmação: todos precisarão do novo código.', { precisaConfirmar: true });
+  if (!mudancas.length) return { ok: true, semMudanca: true, versao: C.versao };
+  garantirLog(ss);
+  let prox = C.proxima;
+  mudancas.forEach(m => {
+    const l = m.linha || prox++;
+    if (!m.linha) gravarTexto(C.sh, l, 1, m.c.nome);
+    if (m.c.tipo === 'texto' || m.c.tipo === 'hora') gravarTexto(C.sh, l, 2, m.novo);
+    else { garantirTamanho(C.sh, l, 2); C.sh.getRange(l, 2).setValue(m.novo); }
+    const seg = m.c.k === 'codigo';
+    registrarLog(ss, usr, 'config: editar', ABA_CFG, m.c.nome, seg ? '[oculto]' : m.antigo, seg ? '[alterado]' : m.novo);
+  });
+  const nova = lerConfigSheet(ss);
+  return { ok: true, versao: nova.versao, gravados: mudancas.length };
+}
+
+/* =====================================================================
+ * ENVIO DE ARQUIVOS (Etapa 4): Encerramentos, Encerramentos_Hoje e Base_Abertos
+ * ---------------------------------------------------------------------
+ * Fluxo (tudo por POST, em lotes):  envio_iniciar -> envio_lote (vários) -> envio_previa -> envio_confirmar  (ou envio_cancelar)
+ *  - Os lotes vão para a aba temporária oculta "Temp_Envio_<aba>". A aba verdadeira só é tocada em envio_confirmar,
+ *    quando TODOS os lotes chegaram certos. Se a conexão cair antes, a aba atual fica intacta.
+ *  - No confirmar: backup automático (aba oculta Backup_<aba>), troca do conteúdo, carimbo do Sincronismo, log e limpeza do cache.
+ *    Se a gravação falhar no meio, o backup é restaurado sozinho. "Desfazer último envio" restaura o backup.
+ *  - Protocolo: comparado só pelos dígitos (sem espaços, sem zeros à esquerda). Notação científica ou sem dígitos = inválido.
+ *  - Colunas com FÓRMULA na linha 2 da aba são preservadas: o envio não escreve nelas e repete a fórmula nas linhas novas.
+ *  - Datas: a coluna de destino manda. Se a aba guarda data de verdade, grava data; se guarda texto, grava texto.
+ * ===================================================================== */
+const OBRIG_ENC = ['Atendente', 'Status', 'Tipo Solicitação', 'Reabertura', 'Código'];
+const ENVIO = {};
+ENVIO[ABA_BASE]    = { obrig: OBRIG_ENC, prot: 'Código', modos: ['acrescentar', 'substituir'], padrao: 'acrescentar', carimbo: 'C2' };
+ENVIO[ABA_HOJE]    = { obrig: OBRIG_ENC, prot: 'Código', modos: ['substituir', 'acrescentar', 'mesclar'], padrao: 'substituir', carimbo: 'B2' };
+ENVIO[ABA_ABERTOS] = { obrig: ['responsavel', 'tipo_solicitacao', 'protocolo_novo', 'em_atraso'], prot: 'protocolo_novo', modos: ['substituir', 'acrescentar', 'mesclar'], padrao: 'substituir', carimbo: 'A2' };
+const ENVIO_MAX_LINHAS = 100000;
+const ENVIO_TTL_S = 21600;
+const tempNome = aba => 'Temp_Envio_' + aba;
+
+function envioDef(aba) { const d = ENVIO[String(aba || '')]; if (!d) throw new ErroApp('Aba inválida para envio.'); return d; }
+function colDe(cab, nome) { return cab.map(chaveH).indexOf(chaveH(nome)); }
+
+/** Protocolo -> { ok, key (só dígitos, sem zeros à esquerda), motivo }. */
+function normalizarProtocolo(v) {
+  if (v == null || v === '') return { ok: false, motivo: 'sem dígitos' };
+  if (v instanceof Date) return { ok: false, motivo: 'sem dígitos' };
+  if (typeof v === 'number') {
+    if (Number.isInteger(v) && v > 0 && v < 1e15) return { ok: true, key: String(v) };
+    return { ok: false, motivo: 'notação científica' };
+  }
+  const s = String(v).replace(/\u00A0/g, ' ').trim();
+  if (/^[+-]?\d+([.,]\d+)?\s*[eE]\s*[+-]?\d+$/.test(s)) return { ok: false, motivo: 'notação científica' };
+  const t = s.replace(/^(\d+)[.,]0+$/, '$1');                  // "123.0" -> "123"
+  const key = t.replace(/\D/g, '').replace(/^0+/, '');
+  return key ? { ok: true, key: key } : { ok: false, motivo: 'sem dígitos' };
+}
+/**
+ * Classifica as linhas do arquivo. prots = protocolo de cada linha (na ordem do arquivo); existKeys = chave de cada linha já na aba ('' = sem protocolo válido).
+ * Devolve índices (posição no arquivo): entram, inval [idx, motivo], rep (repetido no arquivo), dup (já existe na aba; só no modo acrescentar).
+ */
+function classificarEnvio(prots, modo, existKeys) {
+  const mapa = {}; existKeys.forEach(k => { if (k) mapa[k] = 1; });
+  const visto = {}, r = { entram: [], inval: [], rep: [], dup: [], novas: 0, atualizadas: 0, removidas: 0, semProtocolo: 0 };
+  prots.forEach((p, i) => {
+    const n = normalizarProtocolo(p);
+    if (!n.ok) { r.inval.push([i, n.motivo]); return; }
+    if (visto[n.key]) { r.rep.push(i); return; }                // repetido no arquivo: vale a primeira ocorrência
+    visto[n.key] = 1;
+    if (modo === 'acrescentar' && mapa[n.key]) { r.dup.push(i); return; }   // já existe na aba: mantém a da planilha
+    r.entram.push(i);
+    if (modo === 'mesclar' && mapa[n.key]) r.atualizadas++; else r.novas++;
+  });
+  if (modo === 'mesclar') existKeys.forEach(k => { if (!k) r.semProtocolo++; else if (!visto[k]) r.removidas++; });
+  return r;
+}
+
+const pareceData = s => /^\d{4}-\d{2}-\d{2}([T\s]\d{1,2}:\d{2}(:\d{2}(\.\d+)?)?)?$/.test(s) || /^\d{1,2}\/\d{1,2}\/\d{4}([\s,-]+\d{1,2}:\d{2}(:\d{2})?)?$/.test(s);
+/** Converte uma célula do arquivo para o tipo que a coluna de destino guarda ('data' | 'num' | 'texto' | 'vazio'). */
+function converterCelula(v, tipo, ehProt) {
+  if (v == null || v === '') return '';
+  if (ehProt) {
+    const s = typeof v === 'number' ? (Number.isInteger(v) && v < 1e15 ? String(v) : v.toExponential()) : corrigeTexto(v).replace(/\u00A0/g, ' ').trim();
+    const n = normalizarProtocolo(s);
+    if (!n.ok) return s;                                        // inválido: guarda como veio (vai para o relatório)
+    if (tipo === 'num' && /^[1-9]\d{0,14}$/.test(s)) return Number(s);
+    return s;                                                    // texto: não perde zeros nem vira notação científica
+  }
+  if (typeof v === 'object') {                                   // data de célula de data do Excel: { d: "aaaa-mm-dd HH:mm:ss" }
+    const d = String(v.d || ''), ms = msDataHora(d);
+    if (tipo === 'texto') return d.replace(/ 00:00:00$/, '');
+    return ms == null ? d : new Date(ms);
+  }
+  if (typeof v === 'number') return tipo === 'texto' ? String(v) : v;
+  const s = corrigeTexto(v).trim();
+  if (!s) return '';
+  if (tipo === 'data' && pareceData(s)) { const ms = msDataHora(s); if (ms != null) return new Date(ms); }
+  if (tipo === 'num' && /^-?(0|[1-9]\d{0,14})([.,]\d+)?$/.test(s)) return Number(s.replace(',', '.'));
+  return s;
+}
+function tipoDeValores(vals) {
+  let d = 0, n = 0, t = 0;
+  vals.forEach(v => { if (v === '' || v == null) return; if (v instanceof Date) d++; else if (typeof v === 'number') n++; else t++; });
+  const tot = d + n + t;
+  if (!tot) return 'vazio';
+  return d * 2 >= tot ? 'data' : n * 2 >= tot ? 'num' : 'texto';
+}
+function perfilAba(sh, nCols) {
+  const lr = sh.getLastRow(), amostra = lr > 1 ? sh.getRange(2, 1, Math.min(200, lr - 1), nCols).getValues() : [];
+  const tipos = [], fmts = [];
+  for (let j = 0; j < nCols; j++) {
+    const t = tipoDeValores(amostra.map(r => r[j]));
+    tipos.push(t);
+    let f = ''; if (lr > 1 && (t === 'data' || t === 'num')) { try { f = sh.getRange(2, j + 1).getNumberFormat(); } catch (x) {} }
+    fmts.push(f);
+  }
+  let formulas = [];
+  if (lr > 1) { const f = sh.getRange(2, 1, 1, nCols).getFormulasR1C1()[0]; formulas = f.map((x, j) => /^=/.test(x) ? [j, x] : null).filter(Boolean); }
+  return { tipos: tipos, fmts: fmts, formulas: formulas };
+}
+function cabecalhoAba(sh) {
+  const lc = sh.getLastColumn();
+  if (sh.getLastRow() < 1 || lc < 1) return [];
+  return sh.getRange(1, 1, 1, lc).getValues()[0].map(c => String(c == null ? '' : c).trim());
+}
+const hashCab = cab => cab.map(chaveH).join('|');
+
+/** Linhas atuais da aba (chave do protocolo de cada uma; '' = sem protocolo válido). */
+function lerExistentes(sh, iProt) {
+  const lr = sh.getLastRow(); if (lr < 2) return { n: 0, keys: [] };
+  const col = sh.getRange(2, iProt + 1, lr - 1, 1).getValues(), keys = []; let n = 0;
+  col.forEach(r => {
+    const vazio = r[0] === '' || r[0] == null;
+    if (vazio) return;
+    n++;
+    const k = normalizarProtocolo(r[0]); keys.push(k.ok ? k.key : '');
+  });
+  return { n: n, keys: keys };
+}
+function ultimaLinhaCol(sh, j) {
+  const lr = sh.getLastRow(); if (lr < 2) return 1;
+  const col = sh.getRange(2, j + 1, lr - 1, 1).getValues();
+  for (let i = col.length - 1; i >= 0; i--) if (col[i][0] !== '' && col[i][0] != null) return i + 2;
+  return 1;
+}
+
+/* ---- estado do envio (CacheService) ---- */
+function jobLer(b, usr) {
+  const id = String(b.id || '');
+  if (!/^[0-9a-f]{32}$/.test(id)) throw new ErroApp('Envio inválido. Comece de novo.');
+  const raw = CacheService.getScriptCache().get('env:' + id);
+  if (!raw) throw new ErroApp('O envio expirou ou foi cancelado. Comece de novo.');
+  const job = JSON.parse(raw);
+  if (chave(job.login) !== chave(usr.login)) throw new ErroApp('Este envio pertence a outro usuário.', { permissao: true });
+  return job;
+}
+function jobGravar(job) {
+  const c = CacheService.getScriptCache();
+  c.put('env:' + job.id, JSON.stringify(job), ENVIO_TTL_S);
+  c.put('envlock:' + job.aba, JSON.stringify({ login: job.login, id: job.id, t: Date.now() }), 1800);
+}
+function jobLiberar(ss, job) {
+  try { const c = CacheService.getScriptCache(); c.remove('env:' + job.id); c.remove('envlock:' + job.aba); } catch (x) {}
+  const t = ss.getSheetByName(tempNome(job.aba)); if (t) ss.deleteSheet(t);
+}
+
+function acaoEnvioInfo(ss, usr, b) {
+  const aba = String(b.aba || ''), def = envioDef(aba), sh = ss.getSheetByName(aba);
+  if (!sh) throw new ErroApp('A aba ' + aba + ' não foi encontrada.');
+  const cab = cabecalhoAba(sh), iProt = colDe(cab, def.prot);
+  const faltam = def.obrig.filter(n => colDe(cab, n) < 0);
+  let linhas = 0, formulas = [], ocupado = null;
+  if (cab.length && iProt >= 0) { linhas = lerExistentes(sh, iProt).n; formulas = perfilAba(sh, cab.length).formulas.map(f => cab[f[0]]); }
+  try { const lk = JSON.parse(CacheService.getScriptCache().get('envlock:' + aba) || 'null'); if (lk && chave(lk.login) !== chave(usr.login)) ocupado = lk.login; } catch (x) {}
+  return { ok: true, aba: aba, cabecalho: cab, obrigatorias: def.obrig, protocolo: def.prot, modos: def.modos, padrao: def.padrao, linhas: linhas,
+           colunasFormula: formulas, faltamNaAba: faltam, backup: infoBackup(ss, aba), ocupadoPor: ocupado, maxLinhas: ENVIO_MAX_LINHAS };
+}
+
+function acaoEnvioIniciar(ss, usr, b) {
+  const aba = String(b.aba || ''), def = envioDef(aba), modo = String(b.modo || '');
+  if (def.modos.indexOf(modo) < 0) throw new ErroApp('Modo de envio não permitido para esta aba.');
+  const sh = ss.getSheetByName(aba);
+  if (!sh) throw new ErroApp('A aba ' + aba + ' não foi encontrada.');
+  const total = Math.floor(Number(b.total));
+  if (!(total >= 1)) throw new ErroApp('O arquivo não tem linhas de dados.');
+  if (total > ENVIO_MAX_LINHAS) throw new ErroApp('O arquivo tem linhas demais (máximo ' + ENVIO_MAX_LINHAS + ').');
+  const cab = cabecalhoAba(sh);
+  if (!cab.length) throw new ErroApp('A aba ' + aba + ' está sem cabeçalho na linha 1.');
+  if (hashCab(cab) !== hashCab((b.cabecalhoAba || []).map(String))) throw new ErroApp('O cabeçalho da aba mudou. Recarregue a tela e tente de novo.', { conflito: true });
+  const pres = (b.presentes || []).map(chaveH);
+  const semAba = def.obrig.filter(n => colDe(cab, n) < 0);
+  if (semAba.length) throw new ErroApp('A aba ' + aba + ' não tem a(s) coluna(s): ' + semAba.join(', ') + '.');
+  const semArq = def.obrig.filter(n => pres.indexOf(chaveH(n)) < 0);
+  if (semArq.length) throw new ErroApp('Faltam colunas obrigatórias no arquivo: ' + semArq.join(', ') + '.');
+  const c = CacheService.getScriptCache();
+  let lk = null; try { lk = JSON.parse(c.get('envlock:' + aba) || 'null'); } catch (x) {}
+  if (lk && chave(lk.login) !== chave(usr.login)) throw new ErroApp('Já há um envio em andamento para ' + aba + ' (' + lk.login + '). Aguarde alguns minutos.');
+  const velho = ss.getSheetByName(tempNome(aba)); if (velho) ss.deleteSheet(velho);
+  const nCols = cab.length, perfil = perfilAba(sh, nCols), iProt = colDe(cab, def.prot);
+  const tmp = ss.insertSheet(tempNome(aba)); tmp.hideSheet();
+  garantirTamanho(tmp, total + 1, nCols);
+  tmp.getRange(1, 1, 1, nCols).setNumberFormat('@').setValues([cab]);
+  const job = { id: Utilities.getUuid().replace(/-/g, '').toLowerCase(), login: usr.login, aba: aba, modo: modo, total: total, nCols: nCols, iProt: iProt, cab: hashCab(cab),
+                tipos: perfil.tipos, fmts: perfil.fmts, formulas: perfil.formulas, presentes: cab.map(n => pres.indexOf(chaveH(n)) >= 0), recebidos: {}, nome: String(b.nomeArquivo || '').slice(0, 120) };
+  jobGravar(job);
+  return { ok: true, id: job.id, colunasFormula: perfil.formulas.map(f => cab[f[0]]) };
+}
+
+// escreve valores já convertidos respeitando o tipo de cada coluna (texto não é convertido pela planilha)
+function escreverTipado(sh, linhaIni, matriz, job) {
+  const n = matriz.length; if (!n) return;
+  garantirTamanho(sh, linhaIni + n - 1, job.nCols);
+  for (let j = 0; j < job.nCols; j++) {
+    const t = job.tipos[j], r = sh.getRange(linhaIni, j + 1, n, 1);
+    if (t === 'texto' || (j === job.iProt && t !== 'num') || t === 'vazio') r.setNumberFormat('@');
+    else {
+      if (job.fmts[j]) r.setNumberFormat(job.fmts[j]);
+      // coluna numérica/data: texto que a planilha converteria sozinho (ex.: protocolo 0012 virando 12) fica como texto, só nessas células
+      const risco = [];
+      for (let i = 0; i < n; i++) { const v = matriz[i][j]; if (typeof v === 'string' && v !== '' && (/^-?\d+([.,]\d+)?$/.test(v.trim()) || /^=/.test(v) || pareceData(v.trim()))) risco.push(i); }
+      if (risco.length > 50) r.setNumberFormat('@');
+      else risco.forEach(i => sh.getRange(linhaIni + i, j + 1).setNumberFormat('@'));
+    }
+  }
+  for (let i = 0; i < n; i += 5000) { const parte = matriz.slice(i, i + 5000); sh.getRange(linhaIni + i, 1, parte.length, job.nCols).setValues(parte); }
+}
+function acaoEnvioLote(ss, usr, b) {
+  const job = jobLer(b, usr), ini = Math.floor(Number(b.ini)), linhas = Array.isArray(b.linhas) ? b.linhas : [];
+  if (!(ini >= 0) || ini + linhas.length > job.total || !linhas.length) throw new ErroApp('Lote inválido. Comece o envio de novo.');
+  const tmp = ss.getSheetByName(tempNome(job.aba));
+  if (!tmp) throw new ErroApp('A área temporária do envio não existe mais. Comece de novo.');
+  const m = linhas.map(r => {
+    const out = [];
+    for (let j = 0; j < job.nCols; j++) out.push(converterCelula(Array.isArray(r) ? r[j] : null, job.tipos[j], j === job.iProt));
+    return out;
+  });
+  // colunas com fórmula na aba não recebem valores do arquivo
+  m.forEach(r => job.formulas.forEach(f => { r[f[0]] = ''; }));
+  escreverTipado(tmp, 2 + ini, m, job);
+  job.recebidos[ini] = linhas.length;
+  jobGravar(job);
+  return { ok: true, recebidas: Object.keys(job.recebidos).reduce((a, k) => a + job.recebidos[k], 0), total: job.total };
+}
+function conferirLotes(job) {
+  const soma = Object.keys(job.recebidos).reduce((a, k) => a + job.recebidos[k], 0);
+  if (soma !== job.total) throw new ErroApp('Chegaram ' + soma + ' de ' + job.total + ' linhas. Envie o arquivo de novo.');
+  let esperado = 0; const ks = Object.keys(job.recebidos).map(Number).sort((a, b) => a - b);
+  for (let i = 0; i < ks.length; i++) { if (ks[i] !== esperado) throw new ErroApp('Faltou um pedaço do arquivo. Envie de novo.'); esperado += job.recebidos[ks[i]]; }
+}
+const fmtCelulaPrevia = v => v instanceof Date ? Utilities.formatDate(v, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm') : v == null ? '' : String(v).slice(0, 60);
+/** Recalcula tudo a partir da aba temporária e da aba atual (usado na prévia e de novo no confirmar). */
+function calcularEnvio(ss, job) {
+  conferirLotes(job);
+  const sh = ss.getSheetByName(job.aba), tmp = ss.getSheetByName(tempNome(job.aba));
+  if (!sh || !tmp) throw new ErroApp('A aba ou a área temporária não existe mais. Comece de novo.');
+  const cab = cabecalhoAba(sh);
+  if (hashCab(cab) !== job.cab) throw new ErroApp('O cabeçalho da aba mudou durante o envio. Comece de novo.', { conflito: true });
+  if (tmp.getLastRow() < job.total + 1) throw new ErroApp('A área temporária está incompleta. Envie de novo.');
+  const dados = tmp.getRange(2, 1, job.total, job.nCols).getValues();
+  const ex = lerExistentes(sh, job.iProt);
+  const cls = classificarEnvio(dados.map(r => r[job.iProt]), job.modo, ex.keys);
+  const alertaForte = ex.n > 0 && ((job.modo === 'substituir' && job.total * 2 < ex.n) || (job.modo === 'mesclar' && cls.removidas * 2 > ex.n));
+  return { dados: dados, ex: ex, cls: cls, cab: cab, alertaForte: alertaForte };
+}
+function resumoEnvio(job, calc) {
+  const c = calc.cls;
+  const ign = c.inval.map(x => [x[0], 'inv', x[1]]).concat(c.rep.map(i => [i, 'rep', 'repetido no arquivo'])).concat(c.dup.map(i => [i, 'dup', 'já existe na aba']));
+  ign.sort((a, b) => a[0] - b[0]);
+  return { ok: true, aba: job.aba, modo: job.modo, linhasAtuais: calc.ex.n, linhasArquivo: job.total, entram: c.entram.length, novas: c.novas, atualizadas: c.atualizadas, removidas: c.removidas,
+           duplicadas: c.dup.length, repetidas: c.rep.length, invalidas: c.inval.length, semProtocolo: c.semProtocolo, alertaForte: calc.alertaForte,
+           confirmarComNome: calc.alertaForte ? job.aba : '', cabecalho: calc.cab, primeiras: c.entram.slice(0, 10).map(i => calc.dados[i].map(fmtCelulaPrevia)),
+           ignoradas: ign, colunasFormula: job.formulas.map(f => calc.cab[f[0]]) };
+}
+function acaoEnvioPrevia(ss, usr, b) { const job = jobLer(b, usr); return resumoEnvio(job, calcularEnvio(ss, job)); }
+function acaoEnvioCancelar(ss, usr, b) {
+  let job = null; try { job = jobLer(b, usr); } catch (e) { return { ok: true }; }
+  jobLiberar(ss, job); return { ok: true };
+}
+
+function limparDadosAba(sh, nCols) { const lr = sh.getLastRow(); if (lr > 1) sh.getRange(2, 1, lr - 1, nCols).clearContent(); }
+function aplicarFormulas(sh, linhaIni, n, job) { if (n > 0) job.formulas.forEach(f => sh.getRange(linhaIni, f[0] + 1, n, 1).setFormulaR1C1(f[1])); }
+function aplicarEnvio(sh, job, calc) {
+  const c = calc.cls, dados = calc.dados, fset = {}; job.formulas.forEach(f => { fset[f[0]] = 1; });
+  if (job.modo === 'substituir') {
+    const out = c.entram.map(i => dados[i]);
+    limparDadosAba(sh, job.nCols); escreverTipado(sh, 2, out, job); aplicarFormulas(sh, 2, out.length, job);
+  } else if (job.modo === 'acrescentar') {
+    const out = c.entram.map(i => dados[i]), ini = ultimaLinhaCol(sh, job.iProt) + 1;
+    escreverTipado(sh, ini, out, job); aplicarFormulas(sh, ini, out.length, job);
+  } else {                                                          // mesclar: atualiza as existentes, adiciona as novas, remove as que não vieram
+    const lr = sh.getLastRow(), atuais = lr > 1 ? sh.getRange(2, 1, lr - 1, job.nCols).getValues() : [];
+    const porKey = {}; c.entram.forEach(i => { porKey[normalizarProtocolo(dados[i][job.iProt]).key] = dados[i]; });
+    const usados = {}, out = [];
+    atuais.forEach(r => {
+      const k = r[job.iProt] === '' ? '' : (normalizarProtocolo(r[job.iProt]).key || '');
+      if (!k) { if (r.some(x => x !== '' && x != null)) out.push(r); return; }          // sem protocolo válido: mantém como está
+      const n = porKey[k]; if (!n) return;                                              // não veio no arquivo: sai
+      usados[k] = 1;
+      out.push(r.map((x, j) => job.presentes[j] && !fset[j] ? n[j] : x));              // só as colunas que vieram no arquivo
+    });
+    c.entram.forEach(i => { const k = normalizarProtocolo(dados[i][job.iProt]).key; if (!usados[k]) out.push(dados[i]); });
+    limparDadosAba(sh, job.nCols); escreverTipado(sh, 2, out, job); aplicarFormulas(sh, 2, out.length, job);
+  }
+  SpreadsheetApp.flush();
+}
+function lerCarimbo(ss, aba) {
+  const sh = ss.getSheetByName(ABA_SINC); if (!sh) return null;
+  const v = sh.getRange(ENVIO[aba].carimbo).getValue();
+  return v instanceof Date ? v.getTime() : v === '' ? null : String(v);
+}
+function acaoEnvioConfirmar(ss, usr, b) {
+  const job = jobLer(b, usr), calc = calcularEnvio(ss, job), sh = ss.getSheetByName(job.aba);
+  if (!calc.cls.entram.length) throw new ErroApp('O arquivo não tem nenhuma linha válida (protocolos). Nada foi gravado.');   // nunca esvazia a aba por engano
+  if (calc.alertaForte && String(b.confirmacao || '').trim() !== job.aba) throw new ErroApp('Para confirmar, digite o nome da aba: ' + job.aba + '.', { precisaConfirmar: true });
+  garantirLog(ss);
+  const antes = calc.ex.n, ant = lerCarimbo(ss, job.aba);
+  fazerBackup(ss, job.aba, { login: usr.login, acao: 'envio', modo: job.modo, carimboAnt: ant });
+  try { aplicarEnvio(sh, job, calc); }
+  catch (err) {
+    try { restaurarBackup(ss, job.aba); } catch (e2) {}
+    throw new ErroApp('Não foi possível gravar (' + String(err && err.message || err) + '). A aba foi restaurada ao estado anterior.');
+  }
+  let carimbo = false;
+  const sinc = ss.getSheetByName(ABA_SINC);
+  if (sinc) { sinc.getRange(ENVIO[job.aba].carimbo).setValue(new Date()); carimbo = true; }     // só esta célula do Sincronismo
+  const c = calc.cls;
+  jobLiberar(ss, job);
+  registrarLog(ss, usr, 'envio de arquivo', job.aba, 'modo=' + job.modo + (job.nome ? '; arquivo=' + job.nome : ''), 'linhas antes: ' + antes,
+    'novas: ' + c.novas + (job.modo === 'mesclar' ? '; atualizadas: ' + c.atualizadas + '; removidas: ' + c.removidas : '') + '; duplicadas ignoradas: ' + c.dup.length + '; repetidas no arquivo: ' + c.rep.length + '; inválidas: ' + c.inval.length);
+  const r = resumoEnvio(job, calc); r.carimbo = carimbo; r.backup = infoBackup(ss, job.aba);
+  r.avisoSinc = carimbo ? '' : 'A aba Sincronismo não foi encontrada: o carimbo não foi atualizado.';
+  return r;
+}
+function acaoEnvioDesfazer(ss, usr, b) {
+  const aba = String(b.aba || ''); envioDef(aba);
+  const inf = infoBackup(ss, aba);
+  if (!inf) throw new ErroApp('Não há envio anterior para desfazer nesta aba.');
+  let meta = null; try { meta = JSON.parse(PropertiesService.getScriptProperties().getProperty('bk:' + aba) || 'null'); } catch (x) {}
+  garantirLog(ss);
+  restaurarBackup(ss, aba);
+  const sinc = ss.getSheetByName(ABA_SINC);
+  if (sinc && meta && 'carimboAnt' in meta) {                      // devolve o carimbo antigo (só a célula desta aba)
+    const cel = sinc.getRange(ENVIO[aba].carimbo);
+    if (meta.carimboAnt == null) cel.clearContent(); else cel.setValue(typeof meta.carimboAnt === 'number' ? new Date(meta.carimboAnt) : meta.carimboAnt);
+  }
+  registrarLog(ss, usr, 'desfazer envio', aba, 'backup de ' + (inf.t ? Utilities.formatDate(new Date(inf.t), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm') : '?'), '', 'conteúdo anterior restaurado');
+  return { ok: true };
+}
+
+/* =====================================================================
+ * PRIORIDADES e ESCALA_FDS (Etapa 5): edição segura
+ * ---------------------------------------------------------------------
+ * Prioridades: só ADICIONAR e EDITAR (apagar linha faria a prioridade deixar de ser contada). Protocolo só com dígitos (8 ou mais).
+ * Escala_FDS: edita o código de cada célula (colaborador x data) usando só os códigos que a aba já usa; colaboradores precisam existir na aba Técnicos.
+ * Supervisor: só a escala dos técnicos da própria equipe. Backup antes de cada gravação.
+ * ===================================================================== */
+function colunasPrio(v) {                                          // mesma leitura de lerPrioridadesRaw
+  let h = -1;
+  for (let i = 0; i < Math.min(v.length, 15) && h < 0; i++) { if (v[i].some(c => chaveH(c) === 'solicitante')) h = i; }
+  if (h < 0) h = 0;
+  const ncol = (v[h] || []).length, cols = [];
+  for (let j = 0; j < ncol; j++) cols.push(chaveH(v[h][j]) || (h > 0 ? chaveH(v[h - 1][j]) : ''));
+  const exato = nomes => { for (let i = 0; i < nomes.length; i++) { const k = cols.indexOf(nomes[i]); if (k >= 0) return k; } return -1; };
+  const contem = ws => { for (let j = 0; j < cols.length; j++) { if (cols[j] && ws.some(w => cols[j].indexOf(w) >= 0)) return j; } return -1; };
+  let iProt = exato(['protocolo', 'protocolo novo', 'protocolo os', 'os', 'codigo']);
+  if (iProt < 0) {
+    let melhor = 0;
+    for (let j = 0; j < ncol; j++) { let n = 0; for (let i = h + 1; i < Math.min(v.length, h + 60); i++) { if (/^\d{8,}$/.test(String(v[i][j]).trim())) n++; } if (n > melhor) { melhor = n; iProt = j; } }
+  }
+  if (iProt < 0) return null;
+  return { h: h, iProt: iProt, iSol: exato(['solicitante']), iSet: contem(['setor']), iJus: exato(['justificativa', 'motivo']), iRel: contem(['relato']), iDt: contem(['requis', 'data solicitacao', 'dt solicitacao']) };
+}
+function lerPrio(ss) {
+  const sh = ss.getSheetByName(ABA_PRIO);
+  if (!sh) throw new ErroApp('A aba ' + ABA_PRIO + ' não foi encontrada.');
+  const v = sh.getLastRow() < 1 ? [] : sh.getDataRange().getValues();
+  const C = v.length ? colunasPrio(v) : null;
+  if (!C) throw new ErroApp('Não achei a coluna do protocolo na aba ' + ABA_PRIO + '.');
+  return { sh: sh, v: v, C: C, largura: v[C.h].length };
+}
+function dtIso(v) { const d = v instanceof Date ? v : null; if (d && !isNaN(d)) return isoDia(d); const ms = msPrio(v); return ms == null ? '' : isoDia(new Date(ms)); }
+function acaoPrioListar(ss, usr, b) {
+  const P = lerPrio(ss), C = P.C, busca = String(b.busca || '').trim(), dig = busca.replace(/\D/g, ''), nb = nomeKey(busca), todas = [];
+  for (let i = C.h + 1; i < P.v.length; i++) {
+    const r = P.v[i], prot = String(r[C.iProt] == null ? '' : r[C.iProt]).trim();
+    const txt = j => j < 0 ? '' : corrigeTexto(r[j]).trim();
+    if (!prot && !txt(C.iSol) && !txt(C.iJus)) continue;
+    todas.push({ linha: i + 1, versao: versaoValores(r), protocolo: prot, solicitante: txt(C.iSol), setor: txt(C.iSet), justificativa: txt(C.iJus), relato: txt(C.iRel), dt: C.iDt < 0 ? '' : dtIso(r[C.iDt]) });
+  }
+  let lista = todas;
+  if (busca) lista = todas.filter(x => (dig.length >= 3 && x.protocolo.replace(/\D/g, '').indexOf(dig) >= 0) || nomeKey(x.solicitante + ' ' + x.setor + ' ' + x.justificativa).indexOf(nb) >= 0);
+  const total = lista.length; lista = lista.slice(-200).reverse();
+  return { ok: true, total: total, mostrando: lista.length, itens: lista, backup: infoBackup(ss, ABA_PRIO), colunas: { solicitante: C.iSol >= 0, setor: C.iSet >= 0, justificativa: C.iJus >= 0, relato: C.iRel >= 0, dt: C.iDt >= 0 } };
+}
+function tipoColuna(sh, j, de) {
+  const lr = sh.getLastRow(); if (lr <= de) return 'vazio';
+  const col = sh.getRange(de + 1, j + 1, Math.min(100, lr - de), 1).getValues().map(r => r[0]).filter(x => !(typeof x === 'string' && /^#/.test(x)));
+  return tipoDeValores(col);
+}
+function acaoPrioSalvar(ss, usr, b) {
+  const P = lerPrio(ss), C = P.C, d = b.dados || {}, linha = b.linha ? Number(b.linha) : 0;
+  const prot = String(d.protocolo == null ? '' : d.protocolo).trim();
+  if (!/^\d{8,25}$/.test(prot)) throw new ErroApp('O protocolo deve ter só dígitos (8 ou mais).');
+  const dt = String(d.dt || '').trim();
+  if (dt && !/^\d{4}-\d{2}-\d{2}$/.test(dt)) throw new ErroApp('Data inválida.');
+  let atual = null;
+  if (linha) {
+    atual = P.v[linha - 1];
+    if (!atual || linha <= C.h + 1) throw erroConflito('Esta linha não existe mais na planilha. Recarregue a lista.');
+    if (String(b.versao || '') !== versaoValores(atual)) throw erroConflito();
+  }
+  const campos = [['solicitante', C.iSol], ['setor', C.iSet], ['justificativa', C.iJus], ['relato', C.iRel]];
+  campos.forEach(c => { if (c[1] < 0 && String(d[c[0]] || '').trim()) throw new ErroApp('A aba Prioridades não tem a coluna de ' + c[0] + '.'); });
+  if (dt && C.iDt < 0) throw new ErroApp('A aba Prioridades não tem a coluna de data.');
+  garantirLog(ss);
+  let alvo = linha;
+  if (!alvo) { alvo = C.h + 2; for (let i = P.v.length - 1; i > C.h; i--) { if ([C.iProt, C.iSol, C.iJus].some(j => j >= 0 && P.v[i][j] !== '' && P.v[i][j] != null)) { alvo = i + 2; break; } } }
+  fazerBackup(ss, ABA_PRIO, { login: usr.login, acao: linha ? 'editar' : 'adicionar' });
+  const tProt = tipoColuna(P.sh, C.iProt, C.h + 1), tDt = C.iDt >= 0 ? tipoColuna(P.sh, C.iDt, C.h + 1) : 'texto';
+  garantirTamanho(P.sh, alvo, P.largura);
+  if (tProt === 'num' && /^[1-9]\d{0,14}$/.test(prot)) P.sh.getRange(alvo, C.iProt + 1).setValue(Number(prot)); else gravarTexto(P.sh, alvo, C.iProt + 1, prot);
+  campos.forEach(c => { if (c[1] >= 0) gravarTexto(P.sh, alvo, c[1] + 1, String(d[c[0]] || '').trim()); });
+  if (C.iDt >= 0) {
+    if (!dt) P.sh.getRange(alvo, C.iDt + 1).clearContent();
+    else if (tDt === 'data') P.sh.getRange(alvo, C.iDt + 1).setValue(new Date(+dt.slice(0, 4), +dt.slice(5, 7) - 1, +dt.slice(8, 10)));
+    else gravarTexto(P.sh, alvo, C.iDt + 1, dt.slice(8, 10) + '/' + dt.slice(5, 7) + '/' + dt.slice(0, 4));
+  }
+  const dep = P.sh.getRange(alvo, 1, 1, P.largura).getValues()[0];
+  registrarLog(ss, usr, linha ? 'prioridade: editar' : 'prioridade: adicionar', ABA_PRIO, 'protocolo ' + prot + ' (linha ' + alvo + ')',
+    atual ? 'protocolo ' + textoCel(atual[C.iProt]) + '; solicitante ' + (C.iSol >= 0 ? textoCel(atual[C.iSol]) : '') : '', 'solicitante ' + String(d.solicitante || '').trim() + '; justificativa ' + String(d.justificativa || '').trim());
+  return { ok: true, linha: alvo, versao: versaoValores(dep) };
+}
+
+function lerGradeEscala(ss) {
+  const sh = ss.getSheetByName(ABA_ESC);
+  if (!sh) throw new ErroApp('A aba ' + ABA_ESC + ' não foi encontrada.');
+  const v = sh.getLastRow() < 1 ? [] : sh.getDataRange().getValues();
+  let h = -1, iCol = -1;
+  for (let i = 0; i < Math.min(v.length, 10) && h < 0; i++) { const k = v[i].findIndex(c => chaveH(c) === 'colaborador'); if (k >= 0) { h = i; iCol = k; } }
+  if (h < 0) throw new ErroApp('Não achei a coluna COLABORADOR na aba ' + ABA_ESC + '.');
+  const cols = [];
+  for (let j = iCol + 1; j < v[h].length; j++) { const iso = isoDataEscala(v[h][j]); if (iso) cols.push({ j: j, iso: iso }); }
+  const linhas = []; let ultima = h + 1;
+  for (let i = h + 1; i < v.length; i++) {
+    const nome = corrigeTexto(v[i][iCol]).replace(/\s+/g, ' ').trim();
+    if (!nome) continue;
+    ultima = i + 1;
+    const cods = {}; cols.forEach(c => { cods[c.iso] = corrigeTexto(v[i][c.j]).replace(/\s+/g, ' ').trim(); });
+    linhas.push({ linha: i + 1, versao: versaoValores(v[i]), nome: nome, cods: cods });
+  }
+  const freq = {}; linhas.forEach(l => cols.forEach(c => { const x = l.cods[c.iso]; if (x) freq[x] = (freq[x] || 0) + 1; }));
+  const codigos = Object.keys(freq).sort((a, b) => freq[b] - freq[a] || a.localeCompare(b, 'pt-BR'));
+  return { sh: sh, v: v, h: h, iCol: iCol, cols: cols, linhas: linhas, proxima: ultima + 1, codigos: codigos, largura: v[h].length };
+}
+function equipeTecnicos(ss, usr) {                                  // nomes (chave) que o usuário pode mexer na escala; null = todos
+  if (usr.papel === 'coordenador') return null;
+  const m = {}; lerUsuariosRaw(ss, ABA_TEC).forEach(u => { if (nomeKey(u.ref) === nomeKey(usr.nome)) m[nomeKey(u.nome)] = 1; });
+  return m;
+}
+function acaoEscalaListar(ss, usr, b) {
+  const G = lerGradeEscala(ss), eq = equipeTecnicos(ss, usr), todosTec = {};
+  lerUsuariosRaw(ss, ABA_TEC).forEach(u => { todosTec[nomeKey(u.nome)] = 1; });
+  const naGrade = {}; G.linhas.forEach(l => { naGrade[nomeKey(l.nome)] = 1; });
+  const linhas = G.linhas.filter(l => !eq || eq[nomeKey(l.nome)]).map(l => ({ linha: l.linha, versao: l.versao, nome: l.nome, cods: l.cods, semTecnico: !todosTec[nomeKey(l.nome)] }));
+  const novos = lerUsuariosRaw(ss, ABA_TEC).filter(u => u.ativo && (!eq || eq[nomeKey(u.nome)]) && !naGrade[nomeKey(u.nome)]).map(u => u.nome);
+  return { ok: true, backup: infoBackup(ss, ABA_ESC), datas: G.cols.map(c => c.iso), codigos: G.codigos, linhas: linhas, podeAdicionar: novos };
+}
+function acaoEscalaSalvar(ss, usr, b) {
+  const G = lerGradeEscala(ss), eq = equipeTecnicos(ss, usr), alts = Array.isArray(b.alteracoes) ? b.alteracoes : [];
+  if (!alts.length) throw new ErroApp('Nada para salvar.');
+  const permitidos = {}; G.codigos.forEach(c => { permitidos[c] = 1; });
+  const colPorIso = {}; G.cols.forEach(c => { colPorIso[c.iso] = c.j; });
+  const plano = [];
+  alts.forEach(a => {
+    const l = G.linhas.find(x => x.linha === Number(a.linha));
+    if (!l) throw erroConflito('Um colaborador mudou de lugar na planilha. Recarregue a escala.');
+    if (String(a.versao || '') !== l.versao) throw erroConflito('A linha de ' + l.nome + ' foi alterada na planilha. Recarregue a escala e tente de novo.');
+    if (eq && !eq[nomeKey(l.nome)]) throw new ErroApp('Você só pode editar a escala da sua equipe.', { permissao: true });
+    Object.keys(a.celulas || {}).forEach(iso => {
+      if (colPorIso[iso] == null) throw new ErroApp('Data inexistente na escala: ' + iso + '.');
+      const cod = String(a.celulas[iso] == null ? '' : a.celulas[iso]).replace(/\s+/g, ' ').trim();
+      if (cod && !permitidos[cod]) throw new ErroApp('Código "' + cod + '" não é usado na escala. Use um código que já existe na aba.');
+      if (cod !== l.cods[iso]) plano.push({ l: l, iso: iso, cod: cod, antes: l.cods[iso] });
+    });
+  });
+  if (!plano.length) return { ok: true, semMudanca: true };
+  garantirLog(ss); fazerBackup(ss, ABA_ESC, { login: usr.login, acao: 'editar' });
+  plano.forEach(p => gravarTexto(G.sh, p.l.linha, colPorIso[p.iso] + 1, p.cod));
+  const porLinha = {}; plano.forEach(p => { (porLinha[p.l.nome] = porLinha[p.l.nome] || []).push(p); });
+  Object.keys(porLinha).forEach(n => registrarLog(ss, usr, 'escala: editar', ABA_ESC, n,
+    porLinha[n].map(p => p.iso + ': ' + (p.antes || '(vazio)')).join('; '), porLinha[n].map(p => p.iso + ': ' + (p.cod || '(vazio)')).join('; ')));
+  return { ok: true, gravados: plano.length };
+}
+function acaoEscalaNovo(ss, usr, b) {
+  const G = lerGradeEscala(ss), eq = equipeTecnicos(ss, usr), nome = corrigeTexto(b.nome).replace(/\s+/g, ' ').trim();
+  const t = lerUsuariosRaw(ss, ABA_TEC).find(u => nomeKey(u.nome) === nomeKey(nome));
+  if (!t) throw new ErroApp('O nome precisa ser igual ao da aba Técnicos.');
+  if (eq && !eq[nomeKey(t.nome)]) throw new ErroApp('Você só pode editar a escala da sua equipe.', { permissao: true });
+  if (G.linhas.some(l => nomeKey(l.nome) === nomeKey(t.nome))) throw new ErroApp('Esse colaborador já está na escala.');
+  garantirLog(ss); fazerBackup(ss, ABA_ESC, { login: usr.login, acao: 'adicionar colaborador' });
+  gravarTexto(G.sh, G.proxima, G.iCol + 1, t.nome);
+  registrarLog(ss, usr, 'escala: adicionar colaborador', ABA_ESC, t.nome + ' (linha ' + G.proxima + ')', '', 'linha criada sem códigos');
+  return { ok: true, linha: G.proxima };
+}
+
+// restaura o último backup de uma aba que o sistema alterou (só coordenador; envio de arquivos tem o "Desfazer" próprio)
+const ABAS_COM_BACKUP = [ABA_METAS, ABA_ESC, ABA_PRIO];
+ACOES.backup_restaurar = { perfis: ['coordenador'], fn: function (ss, usr, b) {
+  const aba = String(b.aba || '');
+  if (ABAS_COM_BACKUP.indexOf(aba) < 0) throw new ErroApp('Aba inválida para restauração.');
+  if (!infoBackup(ss, aba)) throw new ErroApp('Não há backup desta aba.');
+  garantirLog(ss); restaurarBackup(ss, aba);
+  registrarLog(ss, usr, 'restaurar backup', aba, '', '', 'conteúdo do último backup restaurado');
+  return { ok: true };
+}, grava: true };
+
+/* =====================================================================
+ * TESTES das etapas novas (rodam no editor, só com dados de exemplo: NÃO leem nem gravam a planilha real)
+ * Selecione a função, Executar, e abra o "Registro de execução".
+ * ===================================================================== */
+function _conferir(casos) {
+  let falhas = 0;
+  casos.forEach(c => {
+    let obtido; try { obtido = c[1](); } catch (e) { obtido = 'ERRO: ' + (e && e.message); }
+    const ok = JSON.stringify(obtido) === JSON.stringify(c[2]);
+    if (!ok) falhas++;
+    Logger.log((ok ? 'OK     ' : 'FALHOU ') + c[0] + ' | esperado: ' + JSON.stringify(c[2]) + ' | obtido: ' + JSON.stringify(obtido));
+  });
+  Logger.log(falhas ? 'RESULTADO: ' + falhas + ' caso(s) FALHARAM' : 'RESULTADO: todos os ' + casos.length + ' casos OK');
+}
+/** Permissões: quem vê e quem edita cada cadastro (funções puras, sem planilha). */
+function testarPermissoes() {
+  const coord = { papel: 'coordenador', nome: 'Ana', login: 'ana' }, sup = { papel: 'supervisor', nome: 'Bruno Lima', login: 'bruno' };
+  const tec = { papel: 'tecnico', nome: 'Caio', login: 'caio' }, ctr = { papel: 'controlador', nome: 'Dani', login: 'dani', supervisor: 'Bruno Lima' };
+  const daEquipe = { ref: 'bruno lima' }, deOutro = { ref: 'Carla Souza' };
+  const quemPode = (u, cad, reg) => { try { exigirVerCad(u, cad); } catch (e) { return false; } return podeEditarRegistro(u, cad, reg); };
+  const perfil = (u, lista) => { try { exigirPerfil(u, lista); return true; } catch (e) { return false; } };
+  _conferir([
+    ['coordenador vê os 4 cadastros',                 () => ['tecnico', 'controlador', 'supervisor', 'coordenador'].map(c => podeVerCad(coord, c)), [true, true, true, true]],
+    ['supervisor vê só técnicos e controladores',     () => ['tecnico', 'controlador', 'supervisor', 'coordenador'].map(c => podeVerCad(sup, c)), [true, true, false, false]],
+    ['técnico e controlador não veem nada',           () => ['tecnico', 'controlador', 'supervisor', 'coordenador'].map(c => podeVerCad(tec, c) || podeVerCad(ctr, c)), [false, false, false, false]],
+    ['coordenador edita qualquer linha',              () => quemPode(coord, 'supervisor', deOutro), true],
+    ['supervisor edita técnico da própria equipe',    () => quemPode(sup, 'tecnico', daEquipe), true],
+    ['supervisor edita controlador da equipe',        () => quemPode(sup, 'controlador', daEquipe), true],
+    ['supervisor NÃO edita técnico de outra equipe',  () => quemPode(sup, 'tecnico', deOutro), false],
+    ['supervisor NÃO edita outro supervisor',         () => quemPode(sup, 'supervisor', daEquipe), false],
+    ['supervisor NÃO edita coordenador',              () => quemPode(sup, 'coordenador', daEquipe), false],
+    ['técnico NÃO edita nada',                        () => quemPode(tec, 'tecnico', daEquipe), false],
+    ['controlador NÃO edita nada',                    () => quemPode(ctr, 'tecnico', daEquipe), false],
+    ['Metas/Config/Config só coordenador',            () => [perfil(coord, ACOES.metas_salvar.perfis), perfil(sup, ACOES.metas_salvar.perfis), perfil(sup, ACOES.config_salvar.perfis), perfil(tec, ACOES.config_ler.perfis)], [true, false, false, false]],
+    ['envio: coordenador e supervisor, não técnico',  () => [perfil(coord, ACOES.envio_confirmar.perfis), perfil(sup, ACOES.envio_confirmar.perfis), perfil(tec, ACOES.envio_confirmar.perfis), perfil(ctr, ACOES.envio_confirmar.perfis)], [true, true, false, false]],
+    ['toda ação de gravação exige perfil (nenhuma aberta)', () => Object.keys(ACOES).filter(k => ACOES[k].grava && (!ACOES[k].perfis || !ACOES[k].perfis.length || ACOES[k].perfis.indexOf('tecnico') >= 0 || ACOES[k].perfis.indexOf('controlador') >= 0)), []],
+    ['versão da linha muda quando a linha muda',      () => versaoValores(['a', 1, '']) !== versaoValores(['a', 2, '']) && versaoValores(['a', 1]) === versaoValores(['a', 1]), true]
+  ]);
+}
+/** Log: formato da linha, texto seguro e senha/código NUNCA aparecem. */
+function testarLog() {
+  const usr = { login: 'ana', papel: 'coordenador' };
+  const antigo = { senha: 'SEGREDO1', login: 'x', ativo: true }, novo = { senha: 'SEGREDO2', login: 'y', ativo: false };
+  const dAnt = descreverCampos(antigo, ['login', 'senha', 'ativo']), dNov = descreverCampos(novo, ['login', 'senha', 'ativo']);
+  const lin = linhaDeLog(usr, 'editar', 'Técnicos', 'Fulano (linha 5)', dAnt, dNov, new Date(2026, 0, 2, 3, 4, 5));
+  _conferir([
+    ['a linha do log tem as 8 colunas',               () => lin.length === LOG_COLS.length, true],
+    ['colunas do log',                                () => LOG_COLS.join('|'), 'Data/hora|Login|Perfil|Ação|Aba|Chave da linha|Valor antigo|Valor novo'],
+    ['senha antiga fora do log',                      () => JSON.stringify(lin).indexOf('SEGREDO1') < 0, true],
+    ['senha nova fora do log',                        () => JSON.stringify(lin).indexOf('SEGREDO2') < 0, true],
+    ['mudança de senha aparece como [oculta]',        () => dNov.indexOf('senha: [oculta]') >= 0, true],
+    ['login e ativo aparecem',                        () => dNov.indexOf('login: y') >= 0 && dNov.indexOf('ativo: NÃO') >= 0, true],
+    ['código de acesso também fica oculto',           () => descreverCampos({ codigo: '1234' }, ['codigo']), 'codigo: [oculta]'],
+    ['texto que começa com = não vira fórmula',       () => txtLog('=1+1').charAt(0), ' '],
+    ['texto muito longo é cortado',                   () => txtLog('x'.repeat(5000)).length <= 1501, true],
+    ['nome da aba de log',                            () => ABA_LOG, 'Log_Alterações'],
+    ['nome da aba de backup',                         () => nomeBackup('Metas'), 'Backup_Metas']
+  ]);
+}
+/** Envio: protocolos, duplicados, inválidos e modos (funções puras com dados de exemplo). */
+function testarEnvio() {
+  const cls = (prots, modo, ex) => { const r = classificarEnvio(prots, modo, ex || []); return { e: r.entram, i: r.inval.map(x => x[0]), r: r.rep, d: r.dup, n: r.novas, a: r.atualizadas, x: r.removidas }; };
+  _conferir([
+    ['só dígitos, sem espaços e zeros à esquerda',    () => normalizarProtocolo(' 00123 456 ').key, '123456'],
+    ['número vira chave',                             () => normalizarProtocolo(20263949575).key, '20263949575'],
+    ['"123.0" vira 123',                              () => normalizarProtocolo('123.0').key, '123'],
+    ['notação científica é inválida',                 () => normalizarProtocolo('1,23E+10').motivo, 'notação científica'],
+    ['número grande (precisão perdida) é inválido',   () => normalizarProtocolo(1.23e19).ok, false],
+    ['sem dígitos é inválido',                        () => normalizarProtocolo('abc').ok, false],
+    ['só zeros é inválido',                           () => normalizarProtocolo('000').ok, false],
+    ['vazio é inválido',                              () => normalizarProtocolo('').ok, false],
+    ['repetido no arquivo: entra a 1ª',               () => cls(['10', '10', '11']), { e: [0, 2], i: [], r: [1], d: [], n: 2, a: 0, x: 0 }],
+    ['10 e 0010 são o mesmo protocolo',               () => cls(['10', '0010']), { e: [0], i: [], r: [1], d: [], n: 1, a: 0, x: 0 }],
+    ['inválidos não entram',                          () => cls(['10', '1,5E+9', 'x']), { e: [0], i: [1, 2], r: [], d: [], n: 1, a: 0, x: 0 }],
+    ['acrescentar ignora o que já existe',            () => cls(['10', '11', '12'], 'acrescentar', ['11']), { e: [0, 2], i: [], r: [], d: [1], n: 2, a: 0, x: 0 }],
+    ['substituir não olha o que existe',              () => cls(['10', '11'], 'substituir', ['11']), { e: [0, 1], i: [], r: [], d: [], n: 2, a: 0, x: 0 }],
+    ['mesclar: atualiza, adiciona e remove',          () => cls(['10', '11'], 'mesclar', ['11', '12', '13']), { e: [0, 1], i: [], r: [], d: [], n: 1, a: 1, x: 2 }],
+    ['mesclar mantém linha sem protocolo',            () => classificarEnvio(['10'], 'mesclar', ['', '10']).semProtocolo, 1],
+    ['data do Excel vira data se a coluna é data',    () => converterCelula({ d: '2026-11-23 10:30:00' }, 'data', false) instanceof Date, true],
+    ['data do Excel vira texto se a coluna é texto',  () => converterCelula({ d: '2026-11-23 10:30:00' }, 'texto', false), '2026-11-23 10:30:00'],
+    ['texto dd/mm/aaaa vira data em coluna de data',  () => { const d = converterCelula('23/11/2026 10:30', 'data', false); return d instanceof Date && d.getMonth() === 10 && d.getHours() === 10; }, true],
+    ['protocolo com zeros fica texto',                () => converterCelula('0012345', 'num', true), '0012345'],
+    ['protocolo limpo em coluna numérica vira número',() => converterCelula('20263949575', 'num', true), 20263949575],
+    ['protocolo em coluna de texto fica texto',       () => converterCelula(20263949575, 'texto', true), '20263949575'],
+    ['acento quebrado é consertado',                  () => converterCelula('INSTALAÃ‡ÃƒO FIBRA', 'texto', false), 'INSTALAÇÃO FIBRA'],
+    ['Reabertura "1" vira número em coluna numérica', () => converterCelula('1', 'num', false), 1],
+    ['modos por aba',                                 () => [ENVIO[ABA_BASE].padrao, ENVIO[ABA_HOJE].padrao, ENVIO[ABA_ABERTOS].padrao, ENVIO[ABA_BASE].modos.indexOf('mesclar')], ['acrescentar', 'substituir', 'substituir', -1]],
+    ['carimbos do Sincronismo',                       () => [ENVIO[ABA_ABERTOS].carimbo, ENVIO[ABA_HOJE].carimbo, ENVIO[ABA_BASE].carimbo], ['A2', 'B2', 'C2']]
+  ]);
 }

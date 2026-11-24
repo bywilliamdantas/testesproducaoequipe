@@ -1,8 +1,8 @@
 /* ============ CONFIGURAÇÃO ============ */
 // URL do app da web (termina em /exec), gerada ao implantar o Apps Script
-const URL_PADRAO = 'https://script.google.com/macros/s/AKfycbzJl3LOYfAWzagu-qGWXrfQX5xEoeCFMx54TUH8s3EBu3h1mPFxdjLDAo1eUlKP6V5WMw/exec';
+const URL_PADRAO = 'https://script.google.com/macros/s/AKfycbxpLpDK0WJ53wMXThw2NBb5L9EduZ3DGYrR7IZbSEalXjP-RE8klCTE5JEW5quKltivHw/exec';
 // Opcional: link CSV da aba "URL" publicada na web (assim você troca a URL só na planilha)
-const URL_CSV = 'https://script.google.com/macros/s/AKfycbzJl3LOYfAWzagu-qGWXrfQX5xEoeCFMx54TUH8s3EBu3h1mPFxdjLDAo1eUlKP6V5WMw/exec';
+const URL_CSV = 'https://script.google.com/macros/s/AKfycbxpLpDK0WJ53wMXThw2NBb5L9EduZ3DGYrR7IZbSEalXjP-RE8klCTE5JEW5quKltivHw/exec';
 // Atualização automática (minutos)
 const AUTO_MIN = 5;
 // Modo TV: tempo por tela (segundos), rotação automática entre Produção e Backlog e rolagem da lista
@@ -57,7 +57,6 @@ const state = Object.assign(
 state.busca = '';
 state.dir = state.dir === 'asc' || state.dir === 'desc' ? state.dir : '';   // sentido da ordenação pelo cabeçalho ('' = o padrão da coluna)
 state.grpFechado = new Set();       // equipes recolhidas na tabela (só na tela)
-state.cmpModo = 'ontem';            // comparativo do KPI Concluídos: 'ontem' | 'sem'
 state.codigo = store.get(K.codigo, '');
 /* credenciais da sessão: sessionStorage (vale até fechar a aba) ou, se "Salvar credenciais" estiver ativo, o aparelho lembra e entra direto */
 function lerCredenciais() {
@@ -83,32 +82,65 @@ function aplicarTema() {
   document.documentElement.setAttribute('data-theme', claro ? 'light' : 'dark');
   const m = document.querySelector('meta[name=theme-color]'); if (m) m.setAttribute('content', claro ? '#eef3fb' : '#0a111f');
   document.querySelectorAll('.tema-btn').forEach(b => {
-    b.innerHTML = '<svg class="i" aria-hidden="true"><use href="#i-' + (claro ? 'sun' : 'moon') + '"/></svg>';
+    b.innerHTML = '<svg class="i" aria-hidden="true"><use href="#i-' + (claro ? 'sun' : 'moon') + '"/></svg><span>Tema</span>';
     b.setAttribute('aria-label', 'Tema: ' + (e === 'auto' ? 'automático' : e) + '. Escolher');
   });
   document.querySelectorAll('#temaMenu button').forEach(b => { const on = b.dataset.t === e; b.setAttribute('aria-checked', String(on)); b.classList.toggle('on', on); });
 }
 if (mqClaro.addEventListener) mqClaro.addEventListener('change', aplicarTema); else mqClaro.addListener(aplicarTema);
+/* ----- menu do topo (3 barrinhas): mesmos itens, mesma cor e mesma ordem na Produção e no Backlog ----- */
+(function () {
+  const fechar = foco => document.querySelectorAll('.hmenu').forEach(m => {
+    if (m.hidden) return;
+    m.hidden = true;
+    const b = m.parentElement.querySelector('.menu-btn');
+    if (b) { b.setAttribute('aria-expanded', 'false'); if (foco) b.focus(); }
+  });
+  const itens = m => Array.from(m.querySelectorAll('.mi')).filter(x => !x.hidden && x.offsetParent !== null);
+  document.querySelectorAll('.menu-btn').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation();
+    const m = b.parentElement.querySelector('.hmenu'), abrir = m.hidden;
+    fechar();
+    if (!abrir) return;
+    m.hidden = false; b.setAttribute('aria-expanded', 'true');
+    const p = itens(m)[0]; if (p) p.focus();
+  }));
+  document.querySelectorAll('.hmenu').forEach(m => {
+    // captura: fecha o menu e devolve o foco ao botão antes da ação do item (o foco volta certo depois dos diálogos)
+    m.addEventListener('click', e => { if (e.target.closest('.mi')) { fechar(false); const b = m.parentElement.querySelector('.menu-btn'); if (b) b.focus({ preventScroll: true }); } }, true);
+    m.addEventListener('keydown', e => {
+      const l = itens(m), i = l.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown') { e.preventDefault(); l[(i + 1) % l.length].focus(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); l[(i + l.length - 1) % l.length].focus(); }
+      else if (e.key === 'Home') { e.preventDefault(); l[0].focus(); }
+      else if (e.key === 'End') { e.preventDefault(); l[l.length - 1].focus(); }
+      else if (e.key === 'Tab') fechar(false);
+    });
+  });
+  document.addEventListener('click', e => { if (!e.target.closest('.hmenu')) fechar(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.querySelector('.hmenu:not([hidden])')) fechar(true); });
+})();
 (function () {
   const menu = document.getElementById('temaMenu'); let aberto = null;
+  const anc = b => { const t = b.closest('.top'); return (t && t.querySelector('.menu-btn')) || b; };   // o seletor abre abaixo do botão do menu
   const fechar = () => { menu.hidden = true; if (aberto) { aberto.setAttribute('aria-expanded', 'false'); aberto = null; } };
   document.querySelectorAll('.tema-btn').forEach(b => b.addEventListener('click', e => {
     e.stopPropagation();
     if (aberto === b) { fechar(); return; }
     fechar(); aberto = b; b.setAttribute('aria-expanded', 'true'); menu.hidden = false;
-    const r = b.getBoundingClientRect();
+    const r = anc(b).getBoundingClientRect();
     menu.style.top = Math.round(r.bottom + 6) + 'px'; menu.style.right = Math.max(8, Math.round(window.innerWidth - r.right)) + 'px';
     const on = menu.querySelector('button.on') || menu.querySelector('button'); on.focus();
   }));
   menu.querySelectorAll('button').forEach(x => x.addEventListener('click', () => {
     try { localStorage.setItem(TEMA_K, x.dataset.t); } catch (_) {}
-    aplicarTema(); const b = aberto; fechar(); if (b) b.focus();
+    aplicarTema(); const b = aberto; fechar(); if (b) anc(b).focus();
   }));
   menu.addEventListener('keydown', e => {
     const bs = Array.from(menu.querySelectorAll('button')), i = bs.indexOf(document.activeElement);
     if (e.key === 'ArrowDown') { e.preventDefault(); bs[(i + 1) % bs.length].focus(); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); bs[(i + bs.length - 1) % bs.length].focus(); }
-    else if (e.key === 'Escape') { e.stopPropagation(); const b = aberto; fechar(); if (b) b.focus(); }
+    else if (e.key === 'Escape') { e.stopPropagation(); const b = aberto; fechar(); if (b) anc(b).focus(); }
     else if (e.key === 'Tab') fechar();
   });
   document.addEventListener('click', e => { if (!menu.hidden && !menu.contains(e.target)) fechar(); });
@@ -147,7 +179,8 @@ function definirUsuario(u) {
   if (!u) return;
   const ant = state.user, mudou = !ant || ant.nome !== u.nome || ant.papel !== u.papel;
   state.user = u;
-  $('acessBtn').hidden = !(u.papel === 'supervisor' || u.papel === 'coordenador');   // quem está logado: só supervisor e coordenador
+  $('acessBtn').hidden = $('bAcessBtn').hidden = !(u.papel === 'supervisor' || u.papel === 'coordenador');   // quem está logado: só supervisor e coordenador
+  $('cfgBtn').hidden = $('bCfgBtn').hidden = !(u.papel === 'supervisor' || u.papel === 'coordenador');       // Configurações: só supervisor e coordenador
   ['p-tec', 'p-sup', 'p-coord'].forEach(c => document.body.classList.remove(c));
   document.body.classList.add({ tecnico: 'p-tec', supervisor: 'p-sup', coordenador: 'p-coord' }[u.papel] || 'p-sup');
   if (!mudou) return;
@@ -268,31 +301,12 @@ function lcGravar(k, d, prefixoLimpar) {
 const lcLimpa = login => lcApagar(LC + nk(login || '') + ':');
 const hhmm = ms => { const p = {}; new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Fortaleza', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(ms)).forEach(x => p[x.type] = x.value); return p.hour + ':' + p.minute; };
 const fmtIdade = m => m < 1 ? '<1 min' : m < 60 ? Math.floor(m) + ' min' : Math.floor(m / 60) + 'h' + String(Math.floor(m % 60)).padStart(2, '0');
-// "dados de há X min" (mesma régua de cores da sincronização: até 30 min verde, 31 a 60 laranja, acima de 60 vermelho)
-function pintarFrescor(box, dadosEm, doCache, atualizando) {
-  if (!box) return;
-  if (!dadosEm) { box.hidden = true; return; }
-  const idade = (Date.now() - dadosEm) / 60000;
-  box.hidden = false;
-  box.className = 'frescor ' + (idade <= 30 ? 'f-ok' : idade <= 60 ? 'f-warn' : 'f-bad');
-  box.textContent = doCache && atualizando ? 'Dados de ' + hhmm(dadosEm) + ', atualizando...' : 'Dados de há ' + fmtIdade(idade);
-}
 // "ao vivo" = dado novo vindo do servidor; guardado ou sem conexão não pulsa (indicador "Hoje" e Play)
 function semVivo(v) { document.body.classList.toggle('sem-vivo', !!v); }
-const mostrarFrescor = () => { pintarFrescor($('frescor'), state.dadosEm, state.doCache, carregando); if (!emBacklog()) semVivo(state.doCache || state.offline); };
-const blFrescor = () => { pintarFrescor($('bFrescor'), bl.dadosEm, bl.doCache, bl.carregando); if (emBacklog()) semVivo(bl.doCache || bl.offline); };
+const mostrarFrescor = () => { if (!emBacklog()) semVivo(state.doCache || state.offline); };
+const blFrescor = () => { if (emBacklog()) semVivo(bl.doCache || bl.offline); };
 
-/* ----- alertas dentro do painel (Etapa 16): sem push e sem PWA, só com a página aberta ----- */
-function alertaSync() {
-  const box = $('alertaSync'); if (!box) return;
-  let ms = null;
-  if (emBacklog()) ms = bl.dados && bl.dados.abertosAtualizadoMs;
-  else if (state.dados && state.periodo === 'hoje') ms = state.dados.hojeAtualizadoMs;
-  const idade = ms ? (Date.now() - Number(ms)) / 60000 : null;
-  if (idade == null || isNaN(idade) || idade <= 60) { box.hidden = true; box.textContent = ''; document.body.classList.remove('com-alerta'); return; }
-  box.textContent = 'Dados sem atualizar há ' + fmtIdade(idade) + '. Avise o responsável pela planilha';
-  box.hidden = false; document.body.classList.add('com-alerta');
-}
+/* ----- alertas dentro do painel (Etapa 16) ----- */
 function tituloAba() {
   const n = bl.dados ? bl.itens.filter(vence4).length : 0;
   document.title = (n ? '(' + n + ') ' : '') + (emBacklog() ? 'Backlog' : 'Produção Parcial');
@@ -450,22 +464,8 @@ function listaVisivel() {
   return l;
 }
 
-/* ----- medalhas (Etapa 11): 1º, 2º e 3º com mais concluídos na lista visível; empate recebe a mesma medalha ----- */
-function medalhas(lista) {
-  const r = new Map();
-  if (lista.length < 3) return r;
-  const top = Math.max.apply(null, lista.map(t => t.concl));
-  if (top < 1) return r;
-  lista.forEach(t => {
-    if (!(t.concl >= 1)) return;
-    const pos = 1 + lista.filter(o => o.concl > t.concl).length;     // 1 + quantos têm mais
-    if (pos <= 3) r.set(t, pos);
-  });
-  return r;
-}
 const NIVEL_EXT = { atencao: 'atenção', obs: 'observação', normal: 'normal', acima: 'acima da meta' };
 const NIVEL_SIM = { atencao: '▼', obs: '●', normal: '✔', acima: '▲' };
-const MEDALHA_N = { 1: 'Ouro (1º lugar)', 2: 'Prata (2º lugar)', 3: 'Bronze (3º lugar)' };
 const fmtN2 = n => (Math.round(n * 100) / 100).toString().replace('.', ',');
 
 /* linha de cabeçalho da equipe (ordenação por supervisor): técnicos ativos, concluídos, meta e Gap do grupo (mesma conta do Gap geral) */
@@ -683,7 +683,7 @@ function render() {
 
   mostrarModo();
   mostrarFrescor();
-  alertaSync(); tituloAba();
+  tituloAba();
 
   if (d.baseVazia) aviso('A aba Encerramentos ainda não tem dados. Importe o relatório de encerrados.', 'info');
   else aviso('');
@@ -699,7 +699,6 @@ function render() {
   // linhas de equipe só na ordenação por supervisor (a padrão); recolher não altera os KPIs, que somam a lista inteira
   const agrupar = state.ordem === 'sup' && lista.length > 0;
   const temMetaL = lista.some(t => t.metaPer !== undefined);
-  const medal = medalhas(lista);
   let grpAtual = null;
   lista.forEach(t => {
     if (agrupar) {
@@ -728,7 +727,6 @@ function render() {
     const n = el('div', 'nome'); n.setAttribute('role', 'cell');
     const nb = el('button', 'tec-btn'); nb.type = 'button'; nb.setAttribute('aria-label', 'Abrir detalhes de ' + tc(t.nome));
     nb.addEventListener('click', e => { e.stopPropagation(); abrirTecnico(t, nb); });
-    if (medal.has(t)) { const m = el('span', 'medal m' + medal.get(t), String(medal.get(t))); m.title = MEDALHA_N[medal.get(t)]; m.setAttribute('role', 'img'); m.setAttribute('aria-label', MEDALHA_N[medal.get(t)]); nb.appendChild(m); }
     nb.appendChild(document.createTextNode(tc(t.nome)));
     n.appendChild(nb);
     if (t.escTipo) {                              // filtro de escala: distingue ESCALA de EXTRA
@@ -788,7 +786,6 @@ function render() {
 
   $('filtroBtn').classList.toggle('on', state.periodo !== 'hoje' || !mesmoSet(state.sups, supsPadrao()) || state.ordem !== 'sup');
   pintarCabecalho();
-  comparativoKpi(lista);
 }
 
 // quantas metas (0 a 4) o técnico alcançou, pela média por dia produzido (mesma conta do servidor)
@@ -1012,30 +1009,7 @@ function desenharDetalhes(lista, s, nAtivos, temMeta, meta, fmtN, diario) {
   }
 }
 
-/* ----- comparativo no KPI Concluídos e projeção do dia (Etapa 13) ----- */
-function comparativoKpi(lista) {
-  const b = $('kCmp'), d = state.dados;
-  const cmp = d && d.comparativo;
-  if (!cmp || (state.periodo !== 'hoje' && state.periodo !== 'ontem')) { b.hidden = true; return; }
-  // soma dos técnicos visíveis (respeita busca e equipes); sem os campos por técnico, usa o total do servidor
-  const porTec = lista.length && lista.every(t => t.cmpOntem !== undefined);
-  const refAnt = porTec ? lista.reduce((s, t) => s + t.cmpOntem, 0) : cmp.ontem;
-  const refSem = porTec ? lista.reduce((s, t) => s + t.cmpSemana, 0) : cmp.mesmoDiaSemanaPassada;
-  const sem = state.cmpModo === 'sem', ref = sem ? refSem : refAnt;
-  const rot = sem ? 'vs sem. passada' : (cmp.base === 'ontem' ? 'vs dia anterior' : 'vs ontem');
-  const atual = lista.reduce((s, t) => s + t.concl, 0);
-  b.hidden = false;
-  b.className = 'kcmp';
-  if (!ref) { b.textContent = 'sem base ' + rot.replace('vs ', 'p/ '); b.classList.add('neutro'); }
-  else {
-    const p = Math.round((atual - ref) / ref * 100);
-    b.textContent = (p > 0 ? '▲ +' : p < 0 ? '▼ ' : '= ') + p + '% ' + rot;
-    b.classList.add(p > 0 ? 'up' : p < 0 ? 'down' : 'neutro');
-  }
-  b.title = 'Comparando ' + atual + ' concluídos com ' + ref + ' (' + rot.replace('vs ', '') + '). Toque para alternar.';
-  b.setAttribute('aria-label', b.textContent + '. Toque para alternar a comparação.');
-  b.onclick = () => { state.cmpModo = sem ? 'ontem' : 'sem'; comparativoKpi(lista); };
-}
+/* ----- projeção do dia (Etapa 13) ----- */
 // projeção do dia por ritmo linear = concluídos / fração do expediente já passada. Só no filtro Hoje, depois de 1 hora de expediente e antes do fim.
 function fracExpediente() {
   const d = state.dados;
@@ -1395,12 +1369,10 @@ $('maisBtn').onclick = () => {
 $('refBtn').onclick = () => carregar();
 
 /* ----- login (usuário + senha) ----- */
-let lembrar = false;   // botão "Salvar credenciais"
-function loginMsg(msg, tipo) { const m = $('lgMsg'); m.className = 'lg-msg' + (tipo ? ' ' + tipo : ''); m.textContent = msg || ''; }
+let lembrar = false;   // caixa "Manter conectado"
+function loginMsg(msg, tipo) { const m = $('lgMsg'); m.className = 'ln-msg' + (tipo ? ' ' + tipo : ''); m.textContent = msg || ''; }
 function loginAtualizar() {
-  const b = $('lgSave');
-  b.classList.toggle('on', lembrar); b.setAttribute('aria-pressed', String(lembrar));
-  b.querySelector('use').setAttribute('href', lembrar ? '#i-check' : '#i-save');
+  $('lgKeep').checked = lembrar;
   $('lgBtn').disabled = !($('lgUser').value.trim() && $('lgPass').value);
 }
 function loginPreencher() {
@@ -1410,23 +1382,24 @@ function loginPreencher() {
   loginAtualizar();
 }
 ['lgUser', 'lgPass'].forEach(id => $(id).addEventListener('input', loginAtualizar));
+$('lgKeep').onchange = () => {                    // "Manter conectado": guarda login e senha neste aparelho
+  if ($('lgKeep').checked) {
+    lembrar = true;
+    const login = $('lgUser').value.trim(), senha = $('lgPass').value;
+    if (login && senha) { store.set(K.cred, { login, senha }); store.set(K.auto, true); loginMsg('Credenciais salvas neste aparelho.', 'ok'); }
+  } else { lembrar = false; store.del(K.cred); loginMsg('Credenciais removidas deste aparelho.'); }
+  loginAtualizar();
+};
+$('lgForgot').onclick = () => {                  // senha ou usuário: só o supervisor responsável redefine
+  const h = $('lgHelp'), abrir = h.hidden;
+  h.hidden = !abrir; $('lgForgot').setAttribute('aria-expanded', String(abrir));
+};
 $('lgEye').onclick = () => {
   const p = $('lgPass'), ver = p.type === 'password';
   p.type = ver ? 'text' : 'password';
   $('lgEye').classList.toggle('on', ver);
   $('lgEye').querySelector('use').setAttribute('href', ver ? '#i-eyeoff' : '#i-eye');
   $('lgEye').setAttribute('aria-label', ver ? 'Ocultar senha' : 'Mostrar senha');
-};
-$('lgSave').onclick = () => {
-  if (lembrar) {
-    lembrar = false; store.del(K.cred); loginAtualizar();
-    loginMsg('Credenciais removidas deste aparelho.');
-    return;
-  }
-  const login = $('lgUser').value.trim(), senha = $('lgPass').value;
-  if (!login || !senha) { loginMsg('Preencha login e senha para salvar.', 'erro'); return; }
-  lembrar = true; store.set(K.cred, { login, senha }); store.set(K.auto, true); loginAtualizar();
-  loginMsg('Credenciais salvas neste aparelho.', 'ok');
 };
 function entrar(cred, usuario) {
   state.cred = cred;
@@ -1452,6 +1425,7 @@ $('lgForm').addEventListener('submit', async e => {
       loginMsg((j && j.error) || 'Login ou senha inválidos.', 'erro'); return;
     }
     if (!j.usuario) throw new Error('O Apps Script ainda está na versão antiga. Cole o novo Code.gs e publique uma nova versão da implantação.');
+    sess.token = j.token || '';
     entrar({ login: login, senha: senha }, j.usuario);
   } catch (err) {
     const abortou = err && err.name === 'AbortError';
@@ -1459,6 +1433,8 @@ $('lgForm').addEventListener('submit', async e => {
   } finally { loginAtualizar(); }
 });
 function sair(msg) {
+  if (sess.token) { try { fetch(SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ acao: 'logout', token: sess.token }), keepalive: true, cache: 'no-store' }).catch(() => {}); } catch (_) {} sess.token = ''; }   // encerra o token no servidor
+  cf.aba = ''; Object.keys(cfc).forEach(k => delete cfc[k]); cfp.dados = null; cfp.busca = ''; ev.arq = null; ev.id = '';
   if (state.cred && !msg) { try { fetch(SCRIPT_URL + '?' + new URLSearchParams({ acao: 'sair', login: state.cred.login, senha: state.cred.senha, codigo: state.codigo || '' }).toString(), { keepalive: true, cache: 'no-store' }).catch(() => {}); } catch (_) {} }   // marca offline na hora
   if (state.cred) lcLimpa(state.cred.login);          // apaga os dados guardados deste usuário neste aparelho
   state.dadosEm = 0; state.doCache = false; state.dadosSig = ''; bl.dadosEm = 0; bl.doCache = false; mostrarFrescor(); blFrescor();
@@ -1467,7 +1443,7 @@ function sair(msg) {
   state.cred = null; state.user = null; state.dados = null; state.sups = [];
   state.busca = ''; $('busca').value = ''; $('rows').innerHTML = ''; aviso('');
   bl.dados = null; bl.itens = []; bl.f = {}; bl.busca = '';
-  ['v-blk', 'p-tec', 'p-sup', 'p-coord'].forEach(c => document.body.classList.remove(c));
+  ['v-blk', 'v-cfg', 'p-tec', 'p-sup', 'p-coord'].forEach(c => document.body.classList.remove(c));
   store.set(K.view, '');
   document.body.classList.add('sem-login');
   loginPreencher();
@@ -1475,6 +1451,7 @@ function sair(msg) {
   window.scrollTo(0, 0);
 }
 $('sairBtn').onclick = () => sair();
+$('bSairBtn').onclick = () => sair();
 
 
 /* ============ ACESSOS: quem está logado (supervisor e coordenador) e batimento de presença ============ */
@@ -1524,6 +1501,7 @@ $('acessBtn').onclick = () => {
   abrirDlg($('dlgAcess')); acCarregar();
   clearInterval(ac.timer); ac.timer = setInterval(() => { if ($('dlgAcess').open) acCarregar(); else clearInterval(ac.timer); }, 30000);
 };
+$('bAcessBtn').onclick = () => $('acessBtn').click();
 $('acFechar').onclick = () => $('dlgAcess').close();
 
 /* ============ BACKLOG (aba Base_Abertos) ============ */
@@ -1722,11 +1700,11 @@ function blRender() {
   $('bSub').textContent = ehTec()
     ? 'Agendadas para você' + (bl.emp === 'GERAL' ? '' : ' · ' + empNome(bl.emp)) + ' · ' + totEmp + ' OS'
     : (bl.emp === 'GERAL' ? 'Todas as empresas' : empNome(bl.emp)) + (bl.f.sup ? ' · ' + supResumo(bl.f.sup, blSupervisores()) : '') + ' · ' + totEmp + ' OS abertas';
-  $('bFiltBtn').classList.toggle('on', !!bl.f.sup);
+  $('bFiltBtn').classList.toggle('on', !!bl.f.sup); $('bMenuBtn').classList.toggle('on', !!bl.f.sup);
   blSalvar();
   blEmps(); blKpis(); blPrio(); blChips(); blStrip();
   blTipo(); blStatus(); blAging(); blCidades(); blTecnicos(); blMatriz(); blLista(); blModo();
-  alertaSync(); tituloAba(); botaoNotif(); notificarVencimentos();
+  tituloAba(); botaoNotif(); notificarVencimentos();
   $('bOrdem').value = bl.ordem;
 }
 
@@ -2285,16 +2263,16 @@ $('bRef').onclick = () => carregarBacklog();
 
 /* ----- barra inferior no celular (Etapa 19) ----- */
 function bnavAtualizar() {
-  const b = emBacklog();
+  const b = emBacklog(), c = emCfg();
   document.querySelectorAll('#bnav button').forEach(x => {
-    const on = (x.dataset.a === 'blk') === b && x.dataset.a !== 'filtro';
+    const on = !c && (x.dataset.a === 'blk') === b && x.dataset.a !== 'filtro';
     x.classList.toggle('on', on); if (on) x.setAttribute('aria-current', 'page'); else x.removeAttribute('aria-current');
   });
 }
 document.querySelectorAll('#bnav button').forEach(x => x.addEventListener('click', () => {
   const k = x.dataset.a;
-  if (k === 'prod') { if (emBacklog()) fecharBacklog(); else window.scrollTo({ top: 0, behavior: 'smooth' }); }
-  else if (k === 'blk') { if (!emBacklog()) abrirBacklog(); else window.scrollTo({ top: 0, behavior: 'smooth' }); }
+  if (k === 'prod') { if (emCfg()) fecharCfg('prod'); else if (emBacklog()) fecharBacklog(); else window.scrollTo({ top: 0, behavior: 'smooth' }); }
+  else if (k === 'blk') { if (emCfg()) fecharCfg('blk'); else if (!emBacklog()) abrirBacklog(); else window.scrollTo({ top: 0, behavior: 'smooth' }); }
   else (emBacklog() ? $('bFiltBtn') : $('filtroBtn')).click();          // o filtro da tela atual
 }));
 // a barra some com o teclado aberto (campo de texto em foco)
@@ -2373,14 +2351,14 @@ document.addEventListener('fullscreenchange', () => { if (tv.on && !document.ful
 
 /* ----- navegação entre as telas ----- */
 function abrirBacklog() {
-  document.body.classList.add('v-blk'); store.set(K.view, 'blk');
+  document.body.classList.remove('v-cfg'); document.body.classList.add('v-blk'); store.set(K.view, 'blk');
   window.scrollTo(0, 0);
   if (bl.dados) blRender();
   if (!bl.dados || Date.now() - bl.ultima > 60000) carregarBacklog();
   bnavAtualizar();
 }
 function fecharBacklog() {
-  document.body.classList.remove('v-blk'); store.set(K.view, '');
+  document.body.classList.remove('v-blk', 'v-cfg'); store.set(K.view, '');
   window.scrollTo(0, 0);
   if (state.dados) render();
   else carregar();
@@ -2389,16 +2367,16 @@ function fecharBacklog() {
 $('blkBtn').onclick = abrirBacklog;
 $('bHome').onclick = fecharBacklog;
 
-setInterval(() => { bl.now = Date.now(); if (state.dados && !emBacklog()) { mostrarModo(); mostrarFrescor(); } if (bl.dados && emBacklog()) { blModo(); blFrescor(); } alertaSync(); tituloAba(); if (bl.dados) notificarVencimentos(); }, 30000);
+setInterval(() => { bl.now = Date.now(); if (state.dados && !emBacklog()) { mostrarModo(); mostrarFrescor(); } if (bl.dados && emBacklog()) { blModo(); blFrescor(); } tituloAba(); if (bl.dados) notificarVencimentos(); }, 30000);
 
 /* ----- atualização automática ----- */
 setInterval(() => {
-  if (document.hidden) return;
+  if (document.hidden || emCfg()) return;
   if (emBacklog()) { if (Date.now() - bl.ultima > AUTO_MIN * 60000) carregarBacklog(); }
   else if (Date.now() - state.ultimaCarga > AUTO_MIN * 60000) carregar();
 }, 30000);
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) return;
+  if (document.hidden || emCfg()) return;
   if (emBacklog()) { if (bl.ultima && Date.now() - bl.ultima > 2 * 60000) carregarBacklog(); }
   else if (state.ultimaCarga && Date.now() - state.ultimaCarga > 2 * 60000) carregar();
 });
@@ -2426,9 +2404,732 @@ document.addEventListener('visibilitychange', () => {
   window.addEventListener('touchend', () => {
     const vai = y0 != null && dy > 70;
     y0 = null; dy = 0; esconder();
-    if (vai) { if (emBacklog()) carregarBacklog(); else carregar(); }
+    if (vai && !emCfg()) { if (emBacklog()) carregarBacklog(); else carregar(); }
   }, { passive: true });
 })();
+
+
+/* ============ CONFIGURAÇÕES (cadastros, Metas, Config, envio de arquivos, Escala e Prioridades) ============
+   Gravações vão por POST com TOKEN de sessão (nada de login e senha repetidos). A permissão é conferida no servidor a cada ação:
+   o que aparece ou some aqui é só conforto. Textos sempre entram por textContent (nada de innerHTML com dados). */
+const sess = { token: '' };
+const emCfg = () => document.body.classList.contains('v-cfg');
+const podeCfg = () => papel() === 'supervisor' || papel() === 'coordenador';
+const eCoord = () => papel() === 'coordenador';
+async function postarBruto(corpo, ms) {
+  await resolverUrl();
+  if (!urlValida(SCRIPT_URL)) throw new Error('Falta configurar a URL do Apps Script no arquivo app.js.');
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), ms || 60000);
+  try {
+    const r = await fetch(SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(corpo), signal: ctl.signal, cache: 'no-store' });
+    return await r.json();
+  } finally { clearTimeout(t); }
+}
+async function obterToken() {
+  if (!state.cred) throw new Error('Entre novamente.');
+  const j = await postarBruto({ acao: 'login', login: state.cred.login, senha: state.cred.senha }, 30000);
+  if (!j || !j.ok || !j.token) { sair('Sessão inválida. Entre novamente.'); throw new Error('Sessão inválida.'); }
+  sess.token = j.token; return j.token;
+}
+// ação de configuração: token + código de acesso; se a sessão expirou, entra de novo sozinho e repete (nada tinha sido executado)
+async function postar(acao, dados, ms) {
+  if (!sess.token) await obterToken();
+  const corpo = () => Object.assign({}, dados, { acao: acao, token: sess.token, codigo: state.codigo || '' });
+  let j = await postarBruto(corpo(), ms);
+  if (j && j.sessao) { await obterToken(); j = await postarBruto(corpo(), ms); }
+  if (j && j.login) { sair('Sessão inválida. Entre novamente.'); throw new Error('Sessão inválida.'); }
+  if (j && j.auth) { pedirCodigo(j.error); throw new Error(j.error || 'Código de acesso necessário.'); }
+  if (!j || !j.ok) { const e = new Error((j && j.error) || 'Resposta inválida.'); e.info = j || {}; throw e; }
+  return j;
+}
+const conflito = e => !!(e && e.info && e.info.conflito);
+function cfMsg(txt, tipo, acao) {
+  const s = $('cfStatus'); s.className = 'cf-status' + (tipo ? ' ' + tipo : ''); s.textContent = txt || '';
+  if (acao) { const b = el('button', 'cf-b', acao.t); b.type = 'button'; b.onclick = acao.f; s.appendChild(b); }
+}
+const cfBtn = (txt, cls, fn, icone) => { const b = el('button', 'cf-b' + (cls ? ' ' + cls : '')); b.type = 'button'; if (icone) b.innerHTML = ic(icone); b.appendChild(document.createTextNode(txt)); if (fn) b.onclick = fn; return b; };
+const cfRecarregarBtn = f => ({ t: 'Recarregar', f: () => { cfMsg(''); f(); } });
+
+/* ----- formulário genérico (dlgForm) ----- */
+const cfForm = { o: null, busy: false };
+function erroForm(msg, recarregar) {
+  const e = $('dfErro'); e.textContent = msg || ''; e.hidden = !msg;
+  if (msg && recarregar) { const b = cfBtn('Recarregar a lista', '', () => { $('dlgForm').close(); recarregar(); }); e.appendChild(document.createElement('br')); e.appendChild(b); }
+}
+function campoForm(c) {
+  const w = el('div', 'cf-field'), id = 'ff_' + c.k;
+  let inp;
+  if (c.tipo === 'check') {
+    const row = el('div', 'cf-check'); inp = el('input'); inp.type = 'checkbox'; inp.id = id; inp.checked = !!c.valor;
+    const l = el('label', '', c.rot); l.htmlFor = id; l.style.margin = '0'; row.appendChild(inp); row.appendChild(l); w.appendChild(row);
+  } else {
+    const l = el('label', '', c.rot + (c.obrig ? ' *' : '')); l.htmlFor = id; w.appendChild(l);
+    if (c.tipo === 'select') {
+      inp = el('select', 'ctl'); c.opcoes.forEach(o => { const op = el('option', '', o.t); op.value = o.v; inp.appendChild(op); }); inp.value = c.valor == null ? '' : c.valor;
+    } else if (c.tipo === 'textarea') { inp = el('textarea', 'ctl'); inp.value = c.valor || ''; }
+    else {
+      inp = el('input', 'ctl'); inp.type = c.tipo === 'senha' ? 'password' : c.tipo === 'date' ? 'date' : 'text'; inp.value = c.valor == null ? '' : c.valor;
+      inp.autocomplete = 'off'; if (c.tipo !== 'date') { inp.autocapitalize = 'none'; inp.spellcheck = false; }
+      if (c.modo) inp.inputMode = c.modo;
+    }
+    if (c.max) inp.maxLength = c.max;
+    if (c.tipo === 'senha') {
+      const box = el('div', 'cf-pwbox'); box.appendChild(inp);
+      const eye = el('button', 'cf-eye'); eye.type = 'button'; eye.innerHTML = ic('eye'); eye.setAttribute('aria-label', 'Mostrar senha'); eye.setAttribute('aria-pressed', 'false');
+      eye.onclick = () => { const ver = inp.type === 'password'; inp.type = ver ? 'text' : 'password'; eye.setAttribute('aria-pressed', String(ver)); eye.setAttribute('aria-label', ver ? 'Ocultar senha' : 'Mostrar senha'); eye.innerHTML = ic(ver ? 'eyeoff' : 'eye'); };
+      box.appendChild(eye); w.appendChild(box);
+    } else w.appendChild(inp);
+  }
+  inp.id = id; inp.name = c.k; if (c.ro) inp.disabled = true;
+  if (c.ajuda) { const p = el('p', 'cf-ajuda', c.ajuda); p.id = id + '_a'; inp.setAttribute('aria-describedby', p.id); w.appendChild(p); }
+  return w;
+}
+function abrirForm(o) {
+  const box = $('dfCampos'); box.innerHTML = '';
+  $('dfTitulo').textContent = o.titulo; $('dfSub').textContent = o.sub || ''; erroForm('');
+  o.campos.forEach(c => box.appendChild(campoForm(c)));
+  $('dfSalvar').textContent = o.salvarTxt || 'Salvar'; cfForm.o = o;
+  abrirDlg($('dlgForm'));
+  const p = box.querySelector('input:not([disabled]):not([type=checkbox]), select:not([disabled]), textarea'); if (p) p.focus();
+}
+$('dfCancelar').onclick = () => $('dlgForm').close();
+$('dfForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const o = cfForm.o; if (!o || cfForm.busy) return;
+  const dados = {}; o.campos.forEach(c => { const i = $('ff_' + c.k); dados[c.k] = c.tipo === 'check' ? i.checked : i.value; });
+  const falta = o.campos.find(c => c.obrig && !String(dados[c.k] || '').trim());
+  if (falta) { erroForm('Preencha: ' + falta.rot + '.'); $('ff_' + falta.k).focus(); return; }
+  cfForm.busy = true; $('dfSalvar').disabled = true; $('dfSalvar').textContent = 'Salvando…';
+  try { await o.onSalvar(dados); $('dlgForm').close(); }
+  catch (err) { erroForm(msgErro(err), conflito(err) ? o.onRecarregar : null); }
+  finally { cfForm.busy = false; $('dfSalvar').disabled = false; $('dfSalvar').textContent = o.salvarTxt || 'Salvar'; }
+});
+
+/* ----- confirmação genérica ----- */
+const conf = { res: null, digitar: '' };
+function confirmar(o) {
+  return new Promise(res => {
+    const d = $('dlgConf'); conf.res = res; conf.digitar = o.digitar || '';
+    $('cnTitulo').textContent = o.titulo; $('cnTexto').textContent = o.texto || '';
+    $('cnDigita').hidden = !o.digitar; $('cnInput').value = '';
+    if (o.digitar) $('cnRotulo').textContent = 'Digite "' + o.digitar + '" para confirmar';
+    const sim = $('cnSim'); sim.textContent = o.ok || 'Confirmar'; sim.classList.toggle('perigo', !!o.perigo); sim.disabled = !!o.digitar;
+    abrirDlg(d); (o.digitar ? $('cnInput') : sim).focus();
+  });
+}
+$('cnInput').addEventListener('input', () => { $('cnSim').disabled = conf.digitar && $('cnInput').value.trim() !== conf.digitar; });
+$('cnForm').addEventListener('submit', e => { e.preventDefault(); if ($('cnSim').disabled) return; const r = conf.res; conf.res = null; $('dlgConf').close(); if (r) r(true); });
+$('cnNao').onclick = () => $('dlgConf').close();
+$('dlgConf').addEventListener('close', () => { const r = conf.res; conf.res = null; if (r) r(false); });
+
+/* ----- navegação e abas ----- */
+const CF_AM = ['coordenador', 'supervisor'], CF_C = ['coordenador'];
+const CF_ABAS = [
+  { k: 'tecnico', n: 'Técnicos', p: CF_AM, f: () => cfCad('tecnico') },
+  { k: 'controlador', n: 'Controladores', p: CF_AM, f: () => cfCad('controlador') },
+  { k: 'supervisor', n: 'Supervisores', p: CF_C, f: () => cfCad('supervisor') },
+  { k: 'coordenador', n: 'Coordenadores', p: CF_C, f: () => cfCad('coordenador') },
+  { k: 'metas', n: 'Metas', p: CF_C, f: () => cfMetas() },
+  { k: 'config', n: 'Config', p: CF_C, f: () => cfConfig() },
+  { k: 'envio', n: 'Enviar dados', p: CF_AM, f: () => cfEnvio() },
+  { k: 'escala', n: 'Escala', p: CF_AM, f: () => cfEscala() },
+  { k: 'prio', n: 'Prioridades', p: CF_AM, f: () => cfPrio() }
+];
+const cf = { aba: '' };
+const cfVisiveis = () => CF_ABAS.filter(a => a.p.indexOf(papel()) >= 0);
+function cfTabs() {
+  const box = $('cfTabs'); box.innerHTML = '';
+  cfVisiveis().forEach(a => {
+    const b = el('button', 'cf-tab', a.n); b.type = 'button'; b.id = 'cft_' + a.k; b.setAttribute('role', 'tab'); b.setAttribute('aria-controls', 'cfBody');
+    b.setAttribute('aria-selected', String(a.k === cf.aba)); b.tabIndex = a.k === cf.aba ? 0 : -1; b.onclick = () => cfIr(a.k);
+    b.onkeydown = e => {
+      const l = cfVisiveis(), i = l.findIndex(x => x.k === a.k);
+      const j = e.key === 'ArrowRight' ? (i + 1) % l.length : e.key === 'ArrowLeft' ? (i + l.length - 1) % l.length : e.key === 'Home' ? 0 : e.key === 'End' ? l.length - 1 : -1;
+      if (j >= 0) { e.preventDefault(); cfIr(l[j].k, true); }
+    };
+    box.appendChild(b);
+  });
+}
+function cfIr(k, foco) {
+  const l = cfVisiveis(); if (!l.length) return;
+  if (!l.some(a => a.k === k)) k = l[0].k;
+  cf.aba = k; cfTabs(); cfMsg(''); $('cfBody').setAttribute('aria-labelledby', 'cft_' + k);
+  CF_ABAS.find(a => a.k === k).f();
+  if (foco) $('cft_' + k).focus();
+}
+function abrirCfg() {
+  if (!podeCfg()) return;
+  document.body.classList.remove('v-blk'); document.body.classList.add('v-cfg'); store.set(K.view, '');
+  $('cSub').textContent = eCoord() ? 'Todos os cadastros e dados' : 'Equipe de ' + tc(state.user.nome);
+  window.scrollTo(0, 0); cfIr(cf.aba); bnavAtualizar();
+}
+function fecharCfg(para) {
+  document.body.classList.remove('v-cfg');
+  if (para === 'blk') abrirBacklog(); else fecharBacklog();
+}
+['cfgBtn', 'bCfgBtn'].forEach(id => { $(id).onclick = abrirCfg; });
+$('cHome').onclick = () => fecharCfg('prod'); $('cBlk').onclick = () => fecharCfg('blk');
+$('cSairBtn').onclick = () => sair(); $('cAcessBtn').onclick = () => $('acessBtn').click();
+$('cRef').onclick = () => cfIr(cf.aba);
+
+/* ----- cadastros (Técnicos, Controladores, Supervisores, Coordenadores) ----- */
+const cfc = {};
+const NOME_CAD = { tecnico: 'técnicos', controlador: 'controladores', supervisor: 'supervisores', coordenador: 'coordenadores' };
+function cfCad(k) {
+  const box = $('cfBody'); box.innerHTML = '';
+  const est = cfc[k] || (cfc[k] = { busca: '', filtro: 'ativo', dados: null });
+  const bar = el('div', 'cf-bar');
+  const lb = el('label', 'search'); lb.innerHTML = ic('search'); const inp = el('input'); inp.type = 'search'; inp.placeholder = 'Pesquisar'; inp.autocomplete = 'off';
+  inp.setAttribute('aria-label', 'Pesquisar em ' + NOME_CAD[k]); inp.value = est.busca; lb.appendChild(inp); bar.appendChild(lb);
+  const sel = el('select', 'ctl'); sel.setAttribute('aria-label', 'Filtrar por situação');
+  [['ativo', 'Ativos'], ['inativo', 'Inativos'], ['todos', 'Todos']].forEach(([v, t]) => { const o = el('option', '', t); o.value = v; sel.appendChild(o); }); sel.value = est.filtro; bar.appendChild(sel);
+  const add = cfBtn('Adicionar', 'pri', null, 'plus'); bar.appendChild(add);
+  const cont = el('div', 'cf-cont'); cont.setAttribute('aria-live', 'polite');
+  const lista = el('div', 'cf-list');
+  box.appendChild(bar); box.appendChild(cont); box.appendChild(lista);
+  const desenhar = () => {
+    const d = est.dados; if (!d) return;
+    const q = nk(est.busca);
+    const l = d.linhas.filter(x => (est.filtro === 'todos' || (est.filtro === 'ativo') === x.ativo) && (!q || nk([x.nome, x.ref, x.tipo, x.login].join(' ')).indexOf(q) >= 0))
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    cont.textContent = l.length + ' de ' + d.linhas.length + ' ' + NOME_CAD[k];
+    lista.innerHTML = '';
+    if (!l.length) { lista.appendChild(el('div', 'cf-vazio', d.linhas.length ? 'Nada encontrado com esta busca e filtro.' : 'Nenhum cadastro ainda. Use "Adicionar".')); return; }
+    const h = el('div', 'cf-head'); h.setAttribute('aria-hidden', 'true');
+    ['Nome', 'Login', 'Senha', 'Situação', ''].forEach(t => h.appendChild(el('span', '', t))); lista.appendChild(h);
+    l.forEach(x => lista.appendChild(cadLinha(k, d, x, est)));
+  };
+  est.recarregar = () => comCarregando(lista, async ativo => { const j = await postar('cad_listar', { cad: k }); if (!ativo()) return; est.dados = j; desenhar(); });
+  inp.oninput = () => { est.busca = inp.value; desenhar(); };
+  sel.onchange = () => { est.filtro = sel.value; desenhar(); };
+  add.onclick = () => formCad(k, est, null);
+  if (est.dados) desenhar();
+  est.recarregar();
+}
+function cadLinha(k, d, x, est) {
+  const r = el('div', 'cf-row' + (x.ativo ? '' : ' inativo'));
+  const m = el('div', 'cf-main'); m.appendChild(el('b', '', x.nome));
+  m.appendChild(el('span', '', [x.tipo, x.ref ? d.refRot + ': ' + x.ref : ''].filter(Boolean).join(' · '))); r.appendChild(m);
+  const lg = el('div', 'cf-cel', x.login || '—'); lg.dataset.l = 'Login'; r.appendChild(lg);
+  const pw = el('div', 'cf-cel cf-pw'); pw.dataset.l = 'Senha';
+  if (x.senha) {
+    const v = el('code', '', '••••••'), eye = el('button', 'cf-eye'); eye.type = 'button'; eye.innerHTML = ic('eye'); eye.setAttribute('aria-pressed', 'false'); eye.setAttribute('aria-label', 'Mostrar senha de ' + x.nome);
+    eye.onclick = () => { const ver = eye.getAttribute('aria-pressed') !== 'true'; eye.setAttribute('aria-pressed', String(ver)); v.textContent = ver ? x.senha : '••••••'; eye.innerHTML = ic(ver ? 'eyeoff' : 'eye'); eye.setAttribute('aria-label', (ver ? 'Ocultar' : 'Mostrar') + ' senha de ' + x.nome); };
+    pw.appendChild(v); pw.appendChild(eye);
+  } else pw.textContent = '—';
+  r.appendChild(pw);
+  const st = el('div', 'cf-cel'); st.dataset.l = 'Situação'; st.appendChild(el('span', 'cf-badge' + (x.ativo ? '' : ' off'), x.ativo ? 'Ativo' : 'Inativo')); r.appendChild(st);
+  const ac = el('div', 'cf-acts');
+  const ed = cfBtn('Editar', '', () => formCad(k, est, x)); ed.setAttribute('aria-label', 'Editar ' + x.nome);
+  const at = cfBtn(x.ativo ? 'Desativar' : 'Ativar', x.ativo ? 'perigo' : '', () => cadAtivo(k, est, x)); at.setAttribute('aria-label', (x.ativo ? 'Desativar ' : 'Ativar ') + x.nome);
+  ac.appendChild(ed); ac.appendChild(at); r.appendChild(ac);
+  return r;
+}
+function formCad(k, est, x) {
+  const d = est.dados, campos = [{ k: 'nome', rot: d.rot, obrig: true, tipo: 'text', valor: x ? x.nome : '', max: 120 }];
+  if (d.temTipo) {
+    const ops = [{ v: '', t: '(sem tipo)' }].concat(d.tipos.map(t => ({ v: t, t: t })));
+    if (x && x.tipo && !d.tipos.some(t => nk(t) === nk(x.tipo))) ops.push({ v: x.tipo, t: x.tipo + ' (fora da aba Metas)' });
+    campos.push({ k: 'tipo', rot: 'Tipo', tipo: 'select', opcoes: ops, valor: x ? x.tipo : '', ajuda: 'Lista dos tipos da aba Metas.' });
+  }
+  if (d.refLista) {
+    const ops = d.refs.map(n => ({ v: n, t: n }));
+    if (x && x.ref && !d.refs.some(n => nk(n) === nk(x.ref))) ops.unshift({ v: x.ref, t: x.ref + ' (inexistente)' });
+    if (!d.equipeFixa) ops.unshift({ v: '', t: 'Escolha…' });
+    campos.push({ k: 'ref', rot: d.refRot, obrig: true, tipo: 'select', opcoes: ops, valor: d.equipeFixa ? d.equipeFixa : (x ? x.ref : ''), ro: !!d.equipeFixa, ajuda: d.equipeFixa ? 'Pessoas novas entram na sua equipe.' : '' });
+  } else campos.push({ k: 'ref', rot: d.refRot, tipo: 'text', valor: x ? x.ref : '', max: 120 });
+  campos.push({ k: 'login', rot: 'Login', tipo: 'text', valor: x ? x.login : '', max: 60, ajuda: 'Sem espaços. Único entre todos os cadastros. Deixe login e senha vazios se a pessoa não entra no painel.' });
+  campos.push({ k: 'senha', rot: 'Senha', tipo: 'senha', valor: x ? x.senha : '', max: 60 });
+  campos.push({ k: 'ativo', rot: 'Ativo', tipo: 'check', valor: x ? x.ativo : true });
+  abrirForm({
+    titulo: (x ? 'Editar ' : 'Adicionar ') + d.rot.toLowerCase(), sub: x ? x.nome : 'Novo cadastro', campos: campos, onRecarregar: est.recarregar,
+    onSalvar: async dados => { await postar('cad_salvar', { cad: k, linha: x ? x.linha : 0, versao: x ? x.versao : '', dados: dados }); cfMsg('Salvo.', 'ok'); est.recarregar(); }
+  });
+}
+async function cadAtivo(k, est, x) {
+  const ativar = !x.ativo;
+  const sim = await confirmar({ titulo: (ativar ? 'Ativar ' : 'Desativar ') + x.nome + '?', ok: ativar ? 'Ativar' : 'Desativar', perigo: !ativar,
+    texto: ativar ? 'A pessoa volta a poder entrar e a aparecer nas listas.' : 'A pessoa não poderá mais entrar e sai das listas. A linha continua na planilha com Ativo = NÃO (nada é apagado).' });
+  if (!sim) return;
+  try { await postar('cad_ativo', { cad: k, linha: x.linha, versao: x.versao, ativo: ativar }); cfMsg('Salvo.', 'ok'); }
+  catch (e) { cfMsg(msgErro(e), 'erro', conflito(e) ? cfRecarregarBtn(est.recarregar) : null); if (!conflito(e)) return; }
+  est.recarregar();
+}
+
+/* ----- Metas (só coordenador) ----- */
+const cfm = { itens: [], backup: null };
+const fmtMeta = n => n === '' || n == null ? '' : String(n).replace('.', ',');
+const numMeta = s => { const t = String(s == null ? '' : s).trim().replace(',', '.'); if (!t) return null; const n = Number(t); return isFinite(n) ? n : null; };
+function erroMeta(it) {
+  const nome = (it.tipo || '').trim();
+  if (!nome) return 'Informe o nome do tipo.';
+  const n = it.v.map(numMeta);
+  if (n.some(x => x == null)) return 'Preencha as quatro metas com números.';
+  if (n.some(x => x < 0 || x > 1000)) return 'Meta fora do intervalo permitido.';
+  for (let j = 1; j < 4; j++) if (n[j] < n[j - 1]) return 'É preciso Meta I ≤ II ≤ III ≤ IV.';
+  if (cfm.itens.some(o => o !== it && nk(o.tipo) === nk(nome))) return 'Já existe esse tipo.';
+  return '';
+}
+const sujoMeta = it => it.novo || JSON.stringify(it.v) !== it.orig;
+function cfMetas() {
+  const box = $('cfBody'); box.innerHTML = '';
+  box.appendChild(el('h2', 'cf-h', 'Metas por tipo de técnico'));
+  box.appendChild(el('p', 'cf-sub', 'Meta diária de concluídas (Meta I a IV). Aceita vírgula decimal. Precisa valer Meta I ≤ II ≤ III ≤ IV e nenhum campo pode ficar vazio.'));
+  const bar = el('div', 'cf-bar'), add = cfBtn('Adicionar tipo', '', null, 'plus'), salvar = cfBtn('Salvar alterações', 'pri', null, 'save'), rest = cfBtn('Restaurar último backup', '');
+  salvar.disabled = true; rest.hidden = true; bar.appendChild(add); bar.appendChild(salvar); bar.appendChild(rest);
+  const lista = el('div', 'cf-list'); box.appendChild(bar); box.appendChild(lista);
+  const atualizar = () => { salvar.disabled = !cfm.itens.some(sujoMeta); };
+  const desenhar = () => {
+    lista.innerHTML = '';
+    if (!cfm.itens.length) { lista.appendChild(el('div', 'cf-vazio', 'Nenhum tipo cadastrado. Use "Adicionar tipo".')); atualizar(); return; }
+    const h = el('div', 'cf-metas-h'); h.setAttribute('aria-hidden', 'true'); ['Tipo', 'Meta I', 'Meta II', 'Meta III', 'Meta IV', ''].forEach(t => h.appendChild(el('span', '', t))); lista.appendChild(h);
+    cfm.itens.forEach((it, idx) => {
+      const r = el('div', 'cf-metas-r'), err = el('div', 'cf-linhaerr'); err.setAttribute('role', 'alert');
+      const t = el('input', 'ctl cf-tipo'); t.type = 'text'; t.value = it.tipo; t.setAttribute('aria-label', 'Nome do tipo'); t.maxLength = 60; t.autocomplete = 'off';
+      if (!it.novo) { t.readOnly = true; t.title = 'Para renomear um tipo, mude também a coluna Tipo na aba Técnicos'; }
+      t.oninput = () => { it.tipo = t.value; revalida(); };
+      r.appendChild(t);
+      const ins = [];
+      it.v.forEach((val, j) => {
+        const w = el('div'); const l = el('label', 'sr', 'Meta ' + ROMANOS[j]); const i = el('input', 'ctl'); i.type = 'text'; i.inputMode = 'decimal'; i.value = val; i.id = 'mt_' + idx + '_' + j; l.htmlFor = i.id;
+        i.autocomplete = 'off'; i.oninput = () => { it.v[j] = i.value; revalida(); }; ins.push(i); w.appendChild(l); w.appendChild(i); r.appendChild(w);
+      });
+      const rem = cfBtn('Remover', 'perigo cf-rem', () => metaRemover(it)); rem.setAttribute('aria-label', 'Remover o tipo ' + (it.tipo || 'novo')); r.appendChild(rem);
+      r.appendChild(err);
+      const revalida = () => { r.classList.toggle('sujo', sujoMeta(it)); err.textContent = sujoMeta(it) ? erroMeta(it) : ''; atualizar(); };
+      revalida(); lista.appendChild(r);
+    });
+    atualizar();
+  };
+  const carregar = () => comCarregando(lista, async ativo => {
+    const j = await postar('metas_listar', {}); if (!ativo()) return;
+    cfm.itens = j.itens.map(i => { const v = i.v.map(fmtMeta); return { linha: i.linha, versao: i.versao, tipo: i.tipo, v: v, orig: JSON.stringify(v), usamAtivos: i.usamAtivos, usamTotal: i.usamTotal, novo: false }; });
+    cfm.backup = j.backup; rest.hidden = !j.backup; desenhar();
+  });
+  cfm.recarregar = carregar; cfm.desenhar = desenhar;
+  add.onclick = () => { cfm.itens.unshift({ linha: 0, versao: '', tipo: '', v: ['', '', '', ''], orig: '', novo: true }); desenhar(); const p = lista.querySelector('.cf-tipo'); if (p) p.focus(); };
+  salvar.onclick = async () => {
+    const sujos = cfm.itens.filter(sujoMeta), e = sujos.map(erroMeta).find(Boolean);
+    if (e) { cfMsg(e, 'erro'); return; }
+    salvar.disabled = true;
+    try { await postar('metas_salvar', { itens: sujos.map(i => ({ linha: i.linha, versao: i.versao, tipo: i.tipo.trim(), v: i.v })) }); cfMsg('Salvo.', 'ok'); carregar(); }
+    catch (err) { cfMsg(msgErro(err), 'erro', conflito(err) ? cfRecarregarBtn(carregar) : null); atualizar(); }
+  };
+  rest.onclick = async () => {
+    const b = cfm.backup;
+    if (!await confirmar({ titulo: 'Restaurar a aba Metas?', ok: 'Restaurar', perigo: true, texto: 'A aba Metas volta ao conteúdo de antes da última mudança' + (b && b.t ? ' (' + fmtDH(b.t) + ')' : '') + '. Mudanças feitas depois dela serão perdidas.' })) return;
+    try { await postar('backup_restaurar', { aba: 'Metas' }); cfMsg('Backup restaurado.', 'ok'); carregar(); } catch (err) { cfMsg(msgErro(err), 'erro'); }
+  };
+  carregar();
+}
+async function metaRemover(it) {
+  if (it.novo) { cfm.itens = cfm.itens.filter(x => x !== it); cfm.desenhar(); return; }
+  const n = it.usamAtivos || 0;
+  const texto = (n ? n + ' técnico(s) ativo(s) usam o tipo "' + it.tipo + '"' + (it.usamTotal > n ? ' (' + it.usamTotal + ' contando os inativos)' : '') + '. Sem o tipo eles passam a usar a "Meta padrão" da Config. ' : it.usamTotal ? 'Só técnicos inativos usam este tipo. ' : 'Nenhum técnico usa este tipo. ') + 'Uma cópia da aba fica guardada para restaurar.';
+  if (!await confirmar({ titulo: 'Remover o tipo "' + it.tipo + '"?', texto: texto, ok: 'Remover', perigo: true })) return;
+  try { await postar('metas_remover', { linha: it.linha, versao: it.versao, confirmo: true }); cfMsg('Tipo removido.', 'ok'); }
+  catch (e) { cfMsg(msgErro(e), 'erro', conflito(e) ? cfRecarregarBtn(() => cfMetas()) : null); return; }
+  cfMetas();
+}
+
+/* ----- Config (só coordenador) ----- */
+const CF_ROT = {
+  codigo: ['Código de acesso', 'Se preenchido, todos precisam digitar este código para entrar. Deixe vazio para desligar.', ''],
+  metaNormal: ['Meta normal (por dia)', 'Usada quando o técnico não tem tipo na aba Metas e o período é longo.', '4'],
+  metaObs: ['Meta observação (por dia)', 'Abaixo dela o técnico fica em atenção.', '2'],
+  metaGap: ['Meta do gap (1 a 4)', 'Qual meta do tipo (I a IV) serve de referência para o Gap.', '1'],
+  metaPadrao: ['Meta padrão (por dia)', 'Meta diária de quem não tem tipo.', '5'],
+  titulo: ['Título', 'Aparece no topo do painel.', 'Desempenho da Equipe'],
+  subtitulo: ['Subtítulo', 'Texto abaixo do título (pode ficar vazio).', ''],
+  expedIni: ['Início do expediente', 'Usado na projeção do dia.', '08:00'],
+  expedFim: ['Fim do expediente', 'Usado na projeção do dia.', '18:00']
+};
+function cfConfig() {
+  const box = $('cfBody'); box.innerHTML = '';
+  box.appendChild(el('h2', 'cf-h', 'Config do painel'));
+  box.appendChild(el('p', 'cf-sub', 'Valores da aba Config. As outras linhas da aba não são tocadas.'));
+  const area = el('div'); box.appendChild(area);
+  const carregar = () => comCarregando(area, async ativo => {
+    const j = await postar('config_ler', {}); if (!ativo()) return;
+    const card = el('form', 'cf-card'); card.noValidate = true; const ins = {};
+    j.campos.forEach(c => {
+      const [rot, ajuda, padrao] = CF_ROT[c.k], w = el('div', 'cf-field'), id = 'cc_' + c.k;
+      const l = el('label', '', rot); l.htmlFor = id; w.appendChild(l);
+      let i;
+      if (c.tipo === 'gap') { i = el('select', 'ctl'); [1, 2, 3, 4].forEach(n => { const o = el('option', '', 'Meta ' + ROMANOS[n - 1] + ' (' + n + ')'); o.value = String(n); i.appendChild(o); }); i.value = c.valor || '1'; }
+      else {
+        i = el('input', 'ctl'); i.autocomplete = 'off'; i.value = c.valor;
+        if (c.tipo === 'hora') i.type = 'time'; else { i.type = c.k === 'codigo' ? 'password' : 'text'; if (c.tipo === 'num') i.inputMode = 'decimal'; i.placeholder = padrao; }
+      }
+      i.id = id; ins[c.k] = i;
+      if (c.k === 'codigo') {
+        const b2 = el('div', 'cf-pwbox'); b2.appendChild(i); const eye = el('button', 'cf-eye'); eye.type = 'button'; eye.innerHTML = ic('eye'); eye.setAttribute('aria-label', 'Mostrar código'); eye.setAttribute('aria-pressed', 'false');
+        eye.onclick = () => { const ver = i.type === 'password'; i.type = ver ? 'text' : 'password'; eye.setAttribute('aria-pressed', String(ver)); eye.setAttribute('aria-label', ver ? 'Ocultar código' : 'Mostrar código'); eye.innerHTML = ic(ver ? 'eyeoff' : 'eye'); };
+        b2.appendChild(eye); w.appendChild(b2);
+      } else w.appendChild(i);
+      const p = el('p', 'cf-ajuda', ajuda + (c.existe ? '' : ' (ainda não existe na aba: será criada ao salvar com valor; vazio usa o padrão ' + (padrao || 'em branco') + ')')); p.id = id + '_a'; i.setAttribute('aria-describedby', p.id); w.appendChild(p);
+      card.appendChild(w);
+    });
+    const salvar = cfBtn('Salvar', 'pri', null, 'save'); salvar.type = 'submit'; salvar.style.marginTop = '14px'; card.appendChild(salvar);
+    card.onsubmit = async e => {
+      e.preventDefault();
+      const valores = {}; j.campos.forEach(c => { const v = ins[c.k].value.trim(); if (v !== String(c.valor).trim() && (c.existe || v !== '')) valores[c.k] = v; });
+      if (!Object.keys(valores).length) { cfMsg('Nada mudou.', 'aviso'); return; }
+      let confirmoCodigo = false;
+      if ('codigo' in valores) {
+        if (!await confirmar({ titulo: 'Mudar o código de acesso?', ok: 'Mudar código', perigo: true, texto: valores.codigo ? 'Todas as pessoas precisarão digitar o NOVO código para ver o painel. Avise a equipe antes.' : 'O código de acesso será desligado: o painel passa a abrir só com login e senha.' })) return;
+        confirmoCodigo = true;
+      }
+      salvar.disabled = true;
+      try {
+        await postar('config_salvar', { versao: j.versao, valores: valores, confirmoCodigo: confirmoCodigo });
+        if ('codigo' in valores) { state.codigo = valores.codigo; store.set(K.codigo, valores.codigo); }
+        cfMsg('Salvo.', 'ok'); carregar();
+      } catch (err) { cfMsg(msgErro(err), 'erro', conflito(err) ? cfRecarregarBtn(carregar) : null); salvar.disabled = false; }
+    };
+    area.appendChild(card);
+  });
+  carregar();
+}
+
+/* ----- Enviar dados (Encerramentos, Encerramentos_Hoje, Base_Abertos) ----- */
+const XLSX_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';   // versão fixada
+let xlsxP = null;
+function carregarXLSX() {
+  if (window.XLSX) return Promise.resolve();
+  if (xlsxP) return xlsxP;
+  xlsxP = new Promise((ok, no) => {
+    const s = document.createElement('script'); s.src = XLSX_URL; s.crossOrigin = 'anonymous';
+    s.onload = () => (window.XLSX ? ok() : (xlsxP = null, no(new Error('O leitor de planilhas não carregou.'))));
+    s.onerror = () => { xlsxP = null; no(new Error('Não consegui carregar o leitor de planilhas (cdnjs). Verifique a conexão ou envie um arquivo .csv.')); };
+    document.head.appendChild(s);
+  });
+  return xlsxP;
+}
+function decodificar(buf) {
+  const u8 = new Uint8Array(buf);
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(u8).replace(/^\uFEFF/, ''); }
+  catch (_) { return new TextDecoder('windows-1252').decode(u8); }        // CSV antigo do Excel (acentos não viram "Ã§")
+}
+function parseCSV(t) {
+  const prim = (t.split(/\r?\n/)[0] || ''); let delim = ';', melhor = -1;
+  [';', ',', '\t'].forEach(d => { const n = prim.split(d).length; if (n > melhor) { melhor = n; delim = d; } });
+  const rows = []; let row = [], cel = '', asp = false;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (asp) { if (c === '"') { if (t[i + 1] === '"') { cel += '"'; i++; } else asp = false; } else cel += c; }
+    else if (c === '"' && cel === '') asp = true;
+    else if (c === delim) { row.push(cel); cel = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && t[i + 1] === '\n') i++; row.push(cel); cel = ''; rows.push(row); row = []; }
+    else cel += c;
+  }
+  if (cel !== '' || row.length) { row.push(cel); rows.push(row); }
+  return rows;
+}
+const p2 = n => String(n).padStart(2, '0');
+function valorCelula(c) {
+  if (!c) return '';
+  if (c.t === 'n') {
+    if (c.z && XLSX.SSF.is_date(c.z)) { const d = XLSX.SSF.parse_date_code(c.v); return { d: d.y + '-' + p2(d.m) + '-' + p2(d.d) + ' ' + p2(d.H) + ':' + p2(d.M) + ':' + p2(Math.floor(d.S)) }; }
+    return c.v;
+  }
+  if (c.t === 'b') return c.v ? 'TRUE' : 'FALSE';
+  if (c.t === 'e') return '';
+  return c.v == null ? '' : String(c.v);
+}
+async function lerArquivo(file) {
+  const buf = await file.arrayBuffer(), nome = file.name.toLowerCase();
+  if (/\.csv$/.test(nome) || /\.txt$/.test(nome)) return parseCSV(decodificar(buf));
+  if (!/\.(xlsx|xls)$/.test(nome)) throw new Error('Formato não aceito. Envie .xlsx, .xls ou .csv.');
+  await carregarXLSX();
+  const wb = XLSX.read(buf, { type: 'array', cellNF: true, cellDates: false, raw: true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  if (!ws || !ws['!ref']) return [];
+  const rg = XLSX.utils.decode_range(ws['!ref']), rows = [];
+  for (let r = rg.s.r; r <= rg.e.r; r++) { const row = []; for (let c = rg.s.c; c <= rg.e.c; c++) row.push(valorCelula(ws[XLSX.utils.encode_cell({ r: r, c: c })])); rows.push(row); }
+  return rows;
+}
+const hkey = s => nk(s).replace(/[_\s]+/g, ' ');
+const txtCel = x => x == null ? '' : typeof x === 'object' ? String(x.d || '') : String(x);
+// casa as colunas do arquivo com as da aba pelo NOME (qualquer ordem)
+function prepararArquivo(rows, info) {
+  if (!rows.length) throw new Error('O arquivo está vazio.');
+  const hdr = rows[0].map(x => txtCel(x).trim()), dest = info.cabecalho;
+  const mapa = dest.map(n => hkey(n) ? hdr.findIndex(h => hkey(h) === hkey(n)) : -1);
+  const sobrando = hdr.filter(h => h && !dest.some(n => hkey(n) === hkey(h)));
+  const repetidos = hdr.filter((h, i) => h && hdr.findIndex(x => hkey(x) === hkey(h)) !== i);
+  const faltam = info.obrigatorias.filter(n => !hdr.some(h => hkey(h) === hkey(n)));
+  const semDados = dest.filter((n, j) => n && mapa[j] < 0 && info.colunasFormula.indexOf(n) < 0);
+  const linhas = rows.slice(1).filter(r => r.some(x => x !== '' && x != null));
+  return { hdr: hdr, mapa: mapa, sobrando: sobrando, repetidos: repetidos, faltam: faltam, semDados: semDados, orig: linhas,
+           dest: linhas.map(r => mapa.map(p => p < 0 || r[p] === undefined ? null : r[p])), presentes: dest.filter((n, j) => mapa[j] >= 0) };
+}
+const MODO_T = {
+  substituir: ['Substituir tudo', 'Troca todo o conteúdo da aba pelo do arquivo.'],
+  acrescentar: ['Acrescentar sem duplicar', 'Só entram as linhas cujo protocolo ainda não existe na aba.'],
+  mesclar: ['Mesclar', 'Atualiza as que já existem, adiciona as novas e REMOVE as que não vieram no arquivo.']
+};
+const MOTIVO_T = { inv: 'Protocolo inválido', rep: 'Repetido no arquivo (entrou a primeira ocorrência)', dup: 'Já existe na aba (mantida a da planilha)' };
+const ev = { aba: 'Encerramentos', info: null, arq: null, modo: '', cancel: false, ocupado: false, id: '' };
+async function tentar(n, fn) {
+  for (let i = 1; ; i++) { try { return await fn(); } catch (e) { if (e.info || i >= n) throw e; await new Promise(r => setTimeout(r, 800 * i)); } }   // só repete falha de rede
+}
+function cfEnvio() {
+  const box = $('cfBody'); box.innerHTML = '';
+  box.appendChild(el('h2', 'cf-h', 'Enviar dados para a planilha'));
+  box.appendChild(el('p', 'cf-sub', 'Escolha a aba e o arquivo (.xlsx, .xls ou .csv). Nada é gravado na aba antes da sua confirmação, e há backup para desfazer.'));
+  const c1 = el('div', 'cf-card'), cInfo = el('div'), cArq = el('div'), cModo = el('div'), cAcao = el('div'), cPrev = el('div'), cRes = el('div'), cDesf = el('div');
+  const sel = el('select', 'ctl'); sel.id = 'evAba';
+  const l1 = el('label', '', 'Aba de destino'); l1.htmlFor = 'evAba'; c1.appendChild(l1); c1.appendChild(sel);
+  ['Encerramentos', 'Encerramentos_Hoje', 'Base_Abertos'].forEach(a => { const o = el('option', '', a); o.value = a; sel.appendChild(o); }); sel.value = ev.aba;
+  c1.appendChild(cInfo);
+  const l2 = el('label', '', 'Arquivo'); l2.htmlFor = 'evArq'; c1.appendChild(l2);
+  const arq = el('input', 'ctl'); arq.type = 'file'; arq.id = 'evArq'; arq.accept = '.xlsx,.xls,.csv'; arq.style.paddingTop = '9px'; c1.appendChild(arq);
+  c1.appendChild(cArq);
+  box.appendChild(c1); box.appendChild(cModo); box.appendChild(cAcao); box.appendChild(cPrev); box.appendChild(cRes); box.appendChild(cDesf);
+  const limpar = () => { cPrev.innerHTML = ''; cRes.innerHTML = ''; };
+  const descartar = async () => { if (ev.id) { const id = ev.id; ev.id = ''; try { await postar('envio_cancelar', { id: id }); } catch (_) {} } };
+  const desenharModo = () => {
+    cModo.innerHTML = ''; if (!ev.info) return;
+    const c = el('div', 'cf-card'), fs = el('fieldset', 'cf-radios'); fs.appendChild(el('legend', '', 'Modo de envio'));
+    ev.info.modos.forEach(m => {
+      const lb = el('label', 'cf-radio'), r = el('input'); r.type = 'radio'; r.name = 'evModo'; r.value = m; r.checked = ev.modo === m;
+      r.onchange = () => { ev.modo = m; limpar(); descartar(); desenharModo(); desenharAcao(); };
+      const t = el('div'); t.appendChild(el('b', '', MODO_T[m][0] + (m === ev.info.padrao ? ' (padrão)' : ''))); t.appendChild(el('span', '', MODO_T[m][1])); lb.appendChild(r); lb.appendChild(t); fs.appendChild(lb);
+    });
+    c.appendChild(fs);
+    if (ev.modo === 'acrescentar' && ev.aba !== 'Encerramentos') c.appendChild(el('div', 'cf-aviso', 'Atenção: acrescentar nesta aba deixa as OS antigas, já resolvidas, junto com as novas e pode distorcer o backlog. O normal aqui é "Substituir tudo".'));
+    if (ev.modo === 'mesclar') c.appendChild(el('div', 'cf-aviso', 'Mesclar remove da aba as OS que não vieram no arquivo. Confira a prévia antes de confirmar.'));
+    cModo.appendChild(c);
+  };
+  const desenharAcao = () => {
+    cAcao.innerHTML = '';
+    if (!ev.arq || ev.arq.faltam.length || !ev.info) return;
+    const c = el('div', 'cf-card');
+    const ver = cfBtn('Verificar arquivo e ver a prévia', 'pri', () => verificar(cAcao, cPrev, cRes, desenharInfo), 'upload'); c.appendChild(ver); cAcao.appendChild(c);
+  };
+  const desenharInfo = async () => {
+    cInfo.innerHTML = ''; cDesf.innerHTML = '';
+    try { ev.info = await postar('envio_info', { aba: ev.aba }); } catch (e) { cfMsg(msgErro(e), 'erro'); return; }
+    const i = ev.info; if (!ev.modo || i.modos.indexOf(ev.modo) < 0) ev.modo = i.padrao;
+    cInfo.appendChild(el('p', 'cf-ajuda', 'A aba tem ' + i.linhas + ' linhas de dados hoje.' + (i.colunasFormula.length ? ' Colunas com fórmula (preservadas): ' + i.colunasFormula.join(', ') + '.' : '')));
+    if (i.faltamNaAba.length) cInfo.appendChild(el('div', 'cf-forte', 'A aba não tem a(s) coluna(s) obrigatória(s): ' + i.faltamNaAba.join(', ') + '. Corrija o cabeçalho na planilha.'));
+    if (i.ocupadoPor) cInfo.appendChild(el('div', 'cf-aviso', 'Há um envio em andamento por ' + i.ocupadoPor + '. Aguarde alguns minutos.'));
+    desenharModo(); desenharAcao();
+    if (i.backup) {
+      const c = el('div', 'cf-card'); c.appendChild(el('h3', '', 'Desfazer último envio'));
+      c.appendChild(el('p', 'cf-ajuda', 'Há backup desta aba' + (i.backup.t ? ' de ' + fmtDH(i.backup.t) : '') + (i.backup.login ? ' (' + i.backup.login + ')' : '') + '. Restaurar devolve o conteúdo de antes do último envio e o carimbo do Sincronismo.'));
+      c.appendChild(cfBtn('Desfazer último envio', 'perigo', async () => {
+        if (!await confirmar({ titulo: 'Desfazer o último envio de ' + ev.aba + '?', ok: 'Desfazer', perigo: true, texto: 'A aba volta ao conteúdo de antes do último envio. Alterações feitas na aba depois dele serão perdidas.' })) return;
+        try { await postar('envio_desfazer', { aba: ev.aba }); cfMsg('Envio desfeito: a aba voltou ao estado anterior.', 'ok'); limpar(); desenharInfo(); } catch (e) { cfMsg(msgErro(e), 'erro'); }
+      })); cDesf.appendChild(c);
+    }
+  };
+  sel.onchange = () => { ev.aba = sel.value; ev.arq = null; arq.value = ''; cArq.innerHTML = ''; limpar(); descartar(); desenharInfo(); };
+  arq.onchange = async () => {
+    limpar(); descartar(); ev.arq = null; cArq.innerHTML = ''; desenharAcao();
+    const f = arq.files && arq.files[0]; if (!f) return;
+    cArq.appendChild(el('p', 'cf-ajuda', 'Lendo o arquivo…'));
+    try {
+      const a = prepararArquivo(await lerArquivo(f), ev.info); a.nome = f.name; cArq.innerHTML = '';
+      if (a.dest.length > ev.info.maxLinhas) throw new Error('O arquivo tem linhas demais (máximo ' + ev.info.maxLinhas + ').');
+      ev.arq = a;
+      cArq.appendChild(el('p', 'cf-ajuda', f.name + ': ' + a.dest.length + ' linhas de dados, ' + a.presentes.length + ' colunas reconhecidas.'));
+      if (a.faltam.length) cArq.appendChild(el('div', 'cf-forte', 'Envio bloqueado: faltam colunas obrigatórias no arquivo: ' + a.faltam.join(', ') + '.'));
+      if (!a.dest.length) { ev.arq.faltam = ev.arq.faltam.concat(['(nenhuma linha de dados)']); cArq.appendChild(el('div', 'cf-forte', 'O arquivo não tem linhas de dados.')); }
+      if (a.sobrando.length) cArq.appendChild(el('div', 'cf-aviso', 'Colunas do arquivo que não existem na aba (serão ignoradas): ' + a.sobrando.join(', ') + '.'));
+      if (a.repetidos.length) cArq.appendChild(el('div', 'cf-aviso', 'Cabeçalho repetido no arquivo (vale a primeira coluna): ' + a.repetidos.join(', ') + '.'));
+      if (a.semDados.length) cArq.appendChild(el('div', 'cf-info', 'Colunas da aba que não vieram no arquivo' + (ev.modo === 'mesclar' ? ' (mantêm o valor atual)' : ' (ficam vazias nas linhas novas)') + ': ' + a.semDados.join(', ') + '.'));
+    } catch (e) { cArq.innerHTML = ''; cArq.appendChild(el('div', 'cf-forte', msgErro(e))); }
+    desenharAcao();
+  };
+  desenharInfo();
+}
+async function verificar(cAcao, cPrev, cRes, recarregarInfo) {
+  if (ev.ocupado) return;
+  const a = ev.arq, info = ev.info; ev.cancel = false; ev.ocupado = true; cPrev.innerHTML = ''; cRes.innerHTML = '';
+  const c = el('div', 'cf-card'), prog = el('progress', 'cf-prog'), txt = el('p', 'cf-ajuda', 'Enviando para a área temporária…'); txt.setAttribute('aria-live', 'polite');
+  prog.max = a.dest.length; prog.value = 0; prog.setAttribute('aria-label', 'Progresso do envio');
+  const canc = cfBtn('Cancelar', 'perigo', () => { ev.cancel = true; canc.disabled = true; txt.textContent = 'Cancelando…'; });
+  c.appendChild(prog); c.appendChild(txt); c.appendChild(canc); cPrev.appendChild(c);
+  try {
+    const ini = await postar('envio_iniciar', { aba: ev.aba, modo: ev.modo, total: a.dest.length, cabecalhoAba: info.cabecalho, presentes: a.presentes, nomeArquivo: a.nome });
+    ev.id = ini.id;
+    const lote = Math.max(50, Math.floor(15000 / Math.max(1, info.cabecalho.length)));
+    for (let i = 0; i < a.dest.length; i += lote) {
+      if (ev.cancel) break;
+      await tentar(3, () => postar('envio_lote', { id: ev.id, ini: i, linhas: a.dest.slice(i, i + lote) }, 120000));
+      prog.value = Math.min(a.dest.length, i + lote); txt.textContent = 'Enviado ' + prog.value + ' de ' + a.dest.length + ' linhas…';
+    }
+    if (ev.cancel) { const id = ev.id; ev.id = ''; await postar('envio_cancelar', { id: id }); cPrev.innerHTML = ''; cfMsg('Envio cancelado. Nada foi alterado na aba.', 'aviso'); return; }
+    txt.textContent = 'Conferindo…';
+    const p = await tentar(2, () => postar('envio_previa', { id: ev.id }, 120000));
+    cPrev.innerHTML = ''; mostrarPrevia(cPrev, cRes, p, recarregarInfo);
+  } catch (e) {
+    cPrev.innerHTML = ''; cfMsg(msgErro(e) + ' Nada foi alterado na aba.', 'erro');
+    if (ev.id) { const id = ev.id; ev.id = ''; try { await postar('envio_cancelar', { id: id }); } catch (_) {} }
+  } finally { ev.ocupado = false; }
+}
+function tile(n, rot, cls) { const t = el('div', 'cf-stat' + (cls ? ' ' + cls : '')); t.appendChild(el('b', '', String(n))); t.appendChild(el('span', '', rot)); return t; }
+function mostrarPrevia(cPrev, cRes, p, recarregarInfo) {
+  const c = el('div', 'cf-card'); c.appendChild(el('h3', '', 'Prévia: ' + p.aba + ' (' + MODO_T[p.modo][0].toLowerCase() + ')'));
+  const g = el('div', 'cf-stats');
+  g.appendChild(tile(p.linhasAtuais, 'linhas atuais')); g.appendChild(tile(p.linhasArquivo, 'linhas no arquivo'));
+  if (p.modo === 'mesclar') { g.appendChild(tile(p.novas, 'novas', 'ok')); g.appendChild(tile(p.atualizadas, 'atualizadas')); g.appendChild(tile(p.removidas, 'removidas', p.removidas ? 'warn' : '')); }
+  else g.appendChild(tile(p.entram, 'entram', 'ok'));
+  g.appendChild(tile(p.duplicadas, 'duplicadas (já na aba)', p.duplicadas ? 'warn' : '')); g.appendChild(tile(p.repetidas, 'repetidas no arquivo', p.repetidas ? 'warn' : '')); g.appendChild(tile(p.invalidas, 'inválidas', p.invalidas ? 'bad' : ''));
+  c.appendChild(g);
+  if (p.semProtocolo) c.appendChild(el('div', 'cf-info', p.semProtocolo + ' linha(s) da aba sem protocolo válido serão mantidas como estão.'));
+  if (p.colunasFormula.length) c.appendChild(el('div', 'cf-info', 'Colunas com fórmula preservadas: ' + p.colunasFormula.join(', ') + '.'));
+  if (p.alertaForte) c.appendChild(el('div', 'cf-forte', p.modo === 'substituir' ? 'ALERTA: o arquivo tem ' + p.linhasArquivo + ' linhas e a aba tem ' + p.linhasAtuais + ' (menos da metade). Substituir vai apagar o que não estiver no arquivo. Você precisará digitar o nome da aba para confirmar.' : 'ALERTA: esta mesclagem remove ' + p.removidas + ' das ' + p.linhasAtuais + ' linhas atuais. Você precisará digitar o nome da aba para confirmar.'));
+  c.appendChild(el('h3', '', 'Primeiras ' + p.primeiras.length + ' linhas que entram'));
+  const tw = el('div', 'cf-tabela'), tb = el('table'); tb.setAttribute('aria-label', 'Primeiras linhas que entram');
+  const th = el('tr'); p.cabecalho.forEach(h => { const x = el('th', '', h); x.scope = 'col'; th.appendChild(x); }); const thd = el('thead'); thd.appendChild(th); tb.appendChild(thd);
+  const tbd = el('tbody'); p.primeiras.forEach(r => { const tr = el('tr'); r.forEach(v => tr.appendChild(el('td', '', v))); tbd.appendChild(tr); }); tb.appendChild(tbd); tw.appendChild(tb); c.appendChild(tw);
+  if (!p.primeiras.length) c.appendChild(el('div', 'cf-forte', 'Nenhuma linha válida para entrar.'));
+  const ac = el('div', 'cf-bar');
+  const ok = cfBtn('Confirmar envio', 'pri', async () => {
+    let confirmacao = '';
+    if (p.alertaForte) { if (!await confirmar({ titulo: 'Confirmar a substituição?', texto: 'Esta operação muda muitas linhas de ' + p.aba + '. Um backup será guardado e dá para desfazer.', digitar: p.aba, ok: 'Substituir', perigo: true })) return; confirmacao = p.aba; }
+    ok.disabled = true; no.disabled = true; ok.textContent = 'Gravando…';
+    try { const r = await postar('envio_confirmar', { id: ev.id, confirmacao: confirmacao }, 300000); ev.id = ''; cPrev.innerHTML = ''; mostrarResultado(cRes, r); recarregarInfo(); }
+    catch (e) { cfMsg(msgErro(e), 'erro'); ok.disabled = false; no.disabled = false; ok.textContent = 'Confirmar envio'; }
+  }, 'save');
+  const no = cfBtn('Cancelar', '', async () => { const id = ev.id; ev.id = ''; cPrev.innerHTML = ''; if (id) { try { await postar('envio_cancelar', { id: id }); } catch (_) {} } cfMsg('Envio cancelado. Nada foi alterado na aba.', 'aviso'); });
+  ok.disabled = !p.entram;
+  ac.appendChild(ok); ac.appendChild(no); c.appendChild(ac); cPrev.appendChild(c);
+}
+function mostrarResultado(cRes, r) {
+  const c = el('div', 'cf-card'); c.appendChild(el('h3', '', 'Envio concluído em ' + r.aba));
+  const linha = r.novas + ' novas, ' + r.duplicadas + ' duplicadas ignoradas, ' + r.invalidas + ' inválidas' + (r.repetidas ? ' (e ' + r.repetidas + ' repetidas no arquivo)' : '') + (r.modo === 'mesclar' ? '; ' + r.atualizadas + ' atualizadas, ' + r.removidas + ' removidas' : '') + '.';
+  const p = el('p', '', linha); p.style.fontWeight = '700'; c.appendChild(p);
+  c.appendChild(el('p', 'cf-ajuda', r.carimbo ? 'Carimbo da aba Sincronismo atualizado.' : (r.avisoSinc || '')));
+  if (r.ignoradas.length) c.appendChild(cfBtn('Baixar ignoradas e inválidas (CSV)', '', () => {
+    const a = ev.arq; if (!a) return;
+    const cab = ['Linha no arquivo', 'Motivo'].concat(a.hdr);
+    const linhas = r.ignoradas.map(x => [x[0] + 2, MOTIVO_T[x[1]] + (x[1] === 'inv' ? ': ' + x[2] : '')].concat((a.orig[x[0]] || []).map(txtCel)));
+    baixarCSV('envio-ignoradas-' + r.aba + '-' + dataHoje() + '.csv', csvTexto(cab, linhas));
+  }, 'copy'));
+  c.appendChild(el('p', 'cf-ajuda', 'Para voltar atrás, use "Desfazer último envio" abaixo.'));
+  cRes.appendChild(c); cfMsg('Envio concluído: ' + linha, 'ok');
+}
+
+/* ----- Escala (colaboradores x datas) ----- */
+const cfe = { dados: null, data: '', alter: {} };
+function cfEscala() {
+  const box = $('cfBody'); box.innerHTML = ''; cfe.alter = {};
+  box.appendChild(el('h2', 'cf-h', 'Escala de fim de semana e feriado'));
+  box.appendChild(el('p', 'cf-sub', 'Escolha a data e ajuste o código de cada pessoa. Só valem os códigos que a aba já usa e os nomes iguais aos da aba Técnicos.' + (eCoord() ? '' : ' Você vê só a sua equipe.')));
+  const bar = el('div', 'cf-bar'), area = el('div');
+  const l1 = el('label', 'sr', 'Data'); l1.htmlFor = 'esData'; l1.style.position = 'absolute'; l1.style.left = '-9999px';
+  const sd = el('select', 'ctl'); sd.id = 'esData';
+  const salvar = cfBtn('Salvar alterações', 'pri', null, 'save'); salvar.disabled = true;
+  bar.appendChild(l1); bar.appendChild(sd); bar.appendChild(salvar);
+  const extra = el('div', 'cf-bar'), rest = cfBtn('Restaurar último backup', ''); rest.hidden = true;
+  box.appendChild(bar); box.appendChild(area); box.appendChild(extra);
+  const nSujo = () => Object.keys(cfe.alter).reduce((a, k) => a + Object.keys(cfe.alter[k].celulas).length, 0);
+  const desenhar = () => {
+    const d = cfe.dados; area.innerHTML = ''; salvar.disabled = !nSujo();
+    if (!d.linhas.length) { area.appendChild(el('div', 'cf-vazio', 'Nenhum colaborador visível na escala.')); return; }
+    const g = el('div', 'cf-esc'); area.appendChild(g);
+    d.linhas.forEach(l => {
+      const mud = cfe.alter[l.linha] && cfe.alter[l.linha].celulas[cfe.data] !== undefined, atual = mud ? cfe.alter[l.linha].celulas[cfe.data] : l.cods[cfe.data];
+      const r = el('div', 'cf-row' + (mud ? ' sujo' : '')), m = el('div', 'cf-main'); m.appendChild(el('b', '', l.nome));
+      if (l.semTecnico) m.appendChild(el('span', '', 'sem cadastro na aba Técnicos')); r.appendChild(m);
+      const s = el('select', 'ctl'), id = 'esc_' + l.linha; s.id = id; s.setAttribute('aria-label', 'Código de ' + l.nome + ' em ' + rotEsc(cfe.data));
+      [''].concat(d.codigos).forEach(c => { const o = el('option', '', c || '(vazio)'); o.value = c; s.appendChild(o); }); s.value = atual || '';
+      s.onchange = () => {
+        const a = cfe.alter[l.linha] || (cfe.alter[l.linha] = { versao: l.versao, celulas: {} });
+        if (s.value === (l.cods[cfe.data] || '')) { delete a.celulas[cfe.data]; if (!Object.keys(a.celulas).length) delete cfe.alter[l.linha]; } else a.celulas[cfe.data] = s.value;
+        r.classList.toggle('sujo', !!(cfe.alter[l.linha] && cfe.alter[l.linha].celulas[cfe.data] !== undefined)); salvar.disabled = !nSujo();
+      };
+      r.appendChild(s); g.appendChild(r);
+    });
+  };
+  const carregar = () => comCarregando(area, async ativo => {
+    const j = await postar('escala_listar', {}); if (!ativo()) return;
+    cfe.dados = j; cfe.alter = {}; rest.hidden = !(eCoord() && j.backup);
+    sd.innerHTML = ''; j.datas.slice().sort().forEach(iso => { const o = el('option', '', rotEsc(iso)); o.value = iso; sd.appendChild(o); });
+    const h = hojeISO(); cfe.data = cfe.data && j.datas.indexOf(cfe.data) >= 0 ? cfe.data : (j.datas.slice().sort().find(x => x >= h) || j.datas[j.datas.length - 1] || '');
+    sd.value = cfe.data;
+    extra.innerHTML = '';
+    if (j.podeAdicionar.length) {
+      const ln = el('label', 'sr', 'Adicionar colaborador'); ln.htmlFor = 'esNovo'; ln.style.position = 'absolute'; ln.style.left = '-9999px';
+      const ns = el('select', 'ctl'); ns.id = 'esNovo'; const o0 = el('option', '', 'Adicionar colaborador à escala…'); o0.value = ''; ns.appendChild(o0);
+      j.podeAdicionar.forEach(n => { const o = el('option', '', n); o.value = n; ns.appendChild(o); });
+      const ab = cfBtn('Adicionar', '', async () => {
+        if (!ns.value) return;
+        try { await postar('escala_novo', { nome: ns.value }); cfMsg('Colaborador adicionado à escala (sem códigos ainda).', 'ok'); carregar(); } catch (e) { cfMsg(msgErro(e), 'erro'); }
+      }, 'plus');
+      extra.appendChild(ln); extra.appendChild(ns); extra.appendChild(ab);
+    }
+    extra.appendChild(rest);
+    if (!j.datas.length) { area.innerHTML = ''; area.appendChild(el('div', 'cf-vazio', 'A aba Escala_FDS não tem datas reconhecidas no cabeçalho.')); return; }
+    desenhar();
+  });
+  sd.onchange = () => { cfe.data = sd.value; desenhar(); };
+  salvar.onclick = async () => {
+    const alteracoes = Object.keys(cfe.alter).map(k => ({ linha: Number(k), versao: cfe.alter[k].versao, celulas: cfe.alter[k].celulas }));
+    salvar.disabled = true;
+    try { const r = await postar('escala_salvar', { alteracoes: alteracoes }); cfMsg(r.semMudanca ? 'Nada mudou.' : 'Salvo.', 'ok'); carregar(); }
+    catch (e) { cfMsg(msgErro(e), 'erro', conflito(e) ? cfRecarregarBtn(carregar) : null); salvar.disabled = !nSujo(); }
+  };
+  rest.onclick = async () => {
+    if (!await confirmar({ titulo: 'Restaurar a aba Escala_FDS?', ok: 'Restaurar', perigo: true, texto: 'A aba volta ao conteúdo de antes da última mudança feita pelo sistema. Mudanças posteriores serão perdidas.' })) return;
+    try { await postar('backup_restaurar', { aba: 'Escala_FDS' }); cfMsg('Backup restaurado.', 'ok'); carregar(); } catch (e) { cfMsg(msgErro(e), 'erro'); }
+  };
+  carregar();
+}
+
+/* ----- Prioridades (só adicionar e editar: apagar linha faria a prioridade deixar de ser contada) ----- */
+const cfp = { busca: '', dados: null };
+function cfPrio() {
+  const box = $('cfBody'); box.innerHTML = '';
+  box.appendChild(el('h2', 'cf-h', 'Prioridades'));
+  box.appendChild(el('p', 'cf-sub', 'Uma linha por pedido. Só é possível adicionar e editar: apagar uma linha faria a prioridade deixar de ser contada.'));
+  const bar = el('form', 'cf-bar'); bar.setAttribute('role', 'search');
+  const lb = el('label', 'search'); lb.innerHTML = ic('search'); const inp = el('input'); inp.type = 'search'; inp.placeholder = 'Protocolo, solicitante ou justificativa'; inp.setAttribute('aria-label', 'Pesquisar prioridades'); inp.value = cfp.busca; inp.autocomplete = 'off'; lb.appendChild(inp);
+  const bb = cfBtn('Buscar', ''); bb.type = 'submit'; const add = cfBtn('Adicionar', 'pri', null, 'plus'); const rest = cfBtn('Restaurar último backup', ''); rest.hidden = true;
+  bar.appendChild(lb); bar.appendChild(bb); bar.appendChild(add); bar.appendChild(rest);
+  const cont = el('div', 'cf-cont'); cont.setAttribute('aria-live', 'polite'); const lista = el('div', 'cf-prio');
+  box.appendChild(bar); box.appendChild(cont); box.appendChild(lista);
+  const desenhar = () => {
+    const d = cfp.dados; lista.innerHTML = '';
+    cont.textContent = d.total + ' pedido(s)' + (cfp.busca ? ' na busca' : '') + (d.mostrando < d.total ? '; mostrando os ' + d.mostrando + ' mais recentes (use a busca para os outros)' : '');
+    if (!d.itens.length) { lista.appendChild(el('div', 'cf-vazio', 'Nenhum pedido encontrado.')); return; }
+    d.itens.forEach(x => {
+      const r = el('div', 'cf-row'), a = el('div', 'cf-main'); a.appendChild(el('b', '', x.protocolo || '(sem protocolo)')); a.appendChild(el('span', '', x.solicitante + (x.setor ? ' · ' + x.setor : ''))); r.appendChild(a);
+      r.appendChild(el('div', 'cf-cel', x.justificativa || '—'));
+      r.appendChild(el('div', 'cf-cel', x.dt ? x.dt.slice(8, 10) + '/' + x.dt.slice(5, 7) + '/' + x.dt.slice(0, 4) : ''));
+      const ac = el('div', 'cf-acts'), ed = cfBtn('Editar', '', () => formPrio(x, d, carregar)); ed.setAttribute('aria-label', 'Editar pedido ' + (x.protocolo || '')); ac.appendChild(ed); r.appendChild(ac); lista.appendChild(r);
+    });
+  };
+  const carregar = () => comCarregando(lista, async ativo => {
+    const j = await postar('prio_listar', { busca: cfp.busca }); if (!ativo()) return; cfp.dados = j; rest.hidden = !(eCoord() && j.backup); desenhar();
+  });
+  bar.onsubmit = e => { e.preventDefault(); cfp.busca = inp.value.trim(); carregar(); };
+  add.onclick = () => formPrio(null, cfp.dados, carregar);
+  rest.onclick = async () => {
+    if (!await confirmar({ titulo: 'Restaurar a aba Prioridades?', ok: 'Restaurar', perigo: true, texto: 'A aba volta ao conteúdo de antes da última mudança feita pelo sistema. Mudanças posteriores serão perdidas.' })) return;
+    try { await postar('backup_restaurar', { aba: 'Prioridades' }); cfMsg('Backup restaurado.', 'ok'); carregar(); } catch (e) { cfMsg(msgErro(e), 'erro'); }
+  };
+  carregar();
+}
+function formPrio(x, d, recarregar) {
+  const c = (d && d.colunas) || {}, campos = [{ k: 'protocolo', rot: 'Protocolo', obrig: true, tipo: 'text', modo: 'numeric', valor: x && /^\d+$/.test(x.protocolo) ? x.protocolo : '', max: 25, ajuda: 'Só dígitos (8 ou mais).' }];
+  if (c.solicitante) campos.push({ k: 'solicitante', rot: 'Solicitante', tipo: 'text', valor: x ? x.solicitante : '', max: 120 });
+  if (c.setor) campos.push({ k: 'setor', rot: 'Setor solicitante', tipo: 'text', valor: x ? x.setor : '', max: 120 });
+  if (c.justificativa) campos.push({ k: 'justificativa', rot: 'Justificativa', tipo: 'text', valor: x ? x.justificativa : '', max: 300 });
+  if (c.relato) campos.push({ k: 'relato', rot: 'Relato da justificativa', tipo: 'textarea', valor: x ? x.relato : '', max: 2000 });
+  if (c.dt) campos.push({ k: 'dt', rot: 'Data do pedido', tipo: 'date', valor: x ? x.dt : isoMenos(0) });
+  abrirForm({
+    titulo: x ? 'Editar pedido de prioridade' : 'Novo pedido de prioridade', sub: x ? 'Protocolo ' + x.protocolo : 'Uma linha por pedido', campos: campos, onRecarregar: recarregar,
+    onSalvar: async dados => {
+      if (!/^\d{8,25}$/.test(dados.protocolo.trim())) throw new Error('O protocolo deve ter só dígitos (8 ou mais).');
+      await postar('prio_salvar', { linha: x ? x.linha : 0, versao: x ? x.versao : '', dados: dados }); cfMsg('Salvo.', 'ok'); recarregar();
+    }
+  });
+}
 
 aplicarTema();
 bnavAtualizar();

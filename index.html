@@ -62,6 +62,10 @@
 <symbol id="i-eyeoff" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7c2 0 3.8.8 5.3 1.9M22 12s-4 7-10 7c-2 0-3.8-.8-5.3-1.9"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2M4 4l16 16"/></symbol>
 <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/></symbol>
 <symbol id="i-tick" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></symbol>
+<symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" stroke-width="2.4"/></symbol>
+<symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></symbol>
 <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/></symbol>
 </defs></svg>
 <div id="tvbar" class="tvbar" aria-hidden="true"><b id="tvTela"></b><span id="tvAtual"></span><span id="tvRelogio"></span></div>
@@ -76,31 +80,42 @@
   <button type="button" role="menuitemradio" data-t="claro"><svg class="i" aria-hidden="true"><use href="#i-sun"/></svg>Claro</button>
   <button type="button" role="menuitemradio" data-t="escuro"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg>Escuro</button>
 </div>
-<div id="alertaSync" class="alerta-sync" role="alert" hidden></div>
 <div id="ptr" class="ptr" aria-hidden="true"></div>
 <div id="login" role="dialog" aria-labelledby="lgTitulo">
-  <form class="lg-card" id="lgForm" novalidate>
-    <div class="lg-logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-5M10 21v-9M16 21v-12" stroke="#3b9bff" stroke-width="3.4"/><path d="M3 11l6-4 4 3 8-6M16 4h5v5" stroke="#ff8a1f" stroke-width="2.2"/></svg></div>
-    <h1 id="lgTitulo">Produção Parcial</h1>
-    <p class="lg-sub">As informações registradas no sistema não representam valores oficialmente validados para fins de premiação.</p>
-    <div class="lg-field">
-      <label for="lgUser"><svg class="i" aria-hidden="true"><use href="#i-user"/></svg>Login</label>
-      <input id="lgUser" class="lg-inp" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="seu.login" required>
-    </div>
-    <div class="lg-field">
-      <label for="lgPass"><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg>Senha</label>
-      <div class="lg-pw">
-        <input id="lgPass" class="lg-inp" type="password" autocomplete="current-password" autocapitalize="none" placeholder="Sua senha" required>
-        <button type="button" class="lg-eye" id="lgEye" aria-label="Mostrar senha" title="Mostrar senha"><svg class="i" aria-hidden="true"><use href="#i-eye"/></svg></button>
+  <div class="ln-shell">
+    <form class="ln-card" id="lgForm" novalidate>
+      <div class="ln-logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-5M10 21v-9M16 21v-12" stroke="#3b9bff" stroke-width="3.4"/><path d="M3 11l6-4 4 3 8-6M16 4h5v5" stroke="#ff8a1f" stroke-width="2.2"/></svg></div>
+      <h1 class="ln-h" id="lgTitulo">Produção Parcial</h1>
+      <p class="ln-sub">As informações registradas no sistema não representam valores oficialmente validados para fins de premiação.</p>
+
+      <div class="ln-field">
+        <svg class="i ln-ic" aria-hidden="true"><use href="#i-user"/></svg>
+        <div class="ln-in">
+          <label for="lgUser">Login</label>
+          <input id="lgUser" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+        </div>
       </div>
-    </div>
-    <div class="lg-acts">
-      <button type="submit" class="lg-btn" id="lgBtn" disabled><svg class="i" aria-hidden="true"><use href="#i-login"/></svg>Entrar</button>
-      <button type="button" class="lg-btn sv" id="lgSave" aria-pressed="false" title="Guardar login e senha neste aparelho para entrar direto"><svg class="i" aria-hidden="true"><use href="#i-save"/></svg><span>Salvar</span></button>
-    </div>
-    <p class="lg-msg" id="lgMsg" aria-live="polite"></p>
-    <div class="lg-foot">© 2026 William Dantas</div>
-  </form>
+      <div class="ln-field">
+        <svg class="i ln-ic" aria-hidden="true"><use href="#i-lock"/></svg>
+        <div class="ln-in">
+          <label for="lgPass">Senha</label>
+          <input id="lgPass" type="password" autocomplete="current-password" autocapitalize="none" required>
+        </div>
+        <button type="button" class="ln-eye" id="lgEye" aria-label="Mostrar senha" title="Mostrar senha"><svg class="i" aria-hidden="true"><use href="#i-eye"/></svg></button>
+      </div>
+
+      <div class="ln-row">
+        <label class="ln-keep"><input type="checkbox" id="lgKeep"><span>Manter conectado</span></label>
+        <button type="button" class="ln-forgot" id="lgForgot" aria-expanded="false" aria-controls="lgHelp">Esqueceu sua senha?</button>
+      </div>
+      <p class="ln-help" id="lgHelp" role="status" hidden>Para solicitar a redefinição de senha ou de usuário, procure o supervisor responsável.</p>
+
+      <button type="submit" class="ln-btn" id="lgBtn" disabled><svg class="i" aria-hidden="true"><use href="#i-login"/></svg>Entrar</button>
+      <p class="ln-msg" id="lgMsg" aria-live="polite"></p>
+
+      <div class="ln-foot">© 2026 William Dantas</div>
+    </form>
+  </div>
 </div>
 <div class="wrap">
 
@@ -109,15 +124,17 @@
       <div class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-5M10 21v-9M16 21v-12" stroke="#3b9bff" stroke-width="3.4"/><path d="M3 11l6-4 4 3 8-6M16 4h5v5" stroke="#ff8a1f" stroke-width="2.2"/></svg></div>
       <div><h1 id="titulo">Produção Parcial</h1><p id="subtitulo"></p></div>
     </div>
-    <button class="icon-btn refbtn" id="refBtn" aria-label="Atualizar dados"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg></button>
-    <button class="icon-btn acessbtn" id="acessBtn" type="button" aria-label="Quem está logado" title="Quem está logado" hidden><svg class="i" aria-hidden="true"><use href="#i-users"/></svg></button>
-    <button class="icon-btn tvbtn" id="tvBtn" type="button" aria-label="Modo TV" title="Modo TV"><svg class="i" aria-hidden="true"><use href="#i-monitor"/></svg></button>
-    <button class="icon-btn tema-btn" type="button" aria-label="Tema: escolher" title="Tema" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg></button>
-    <button class="icon-btn blkbtn" id="blkBtn" aria-label="Backlog" title="Backlog"><svg class="i" aria-hidden="true"><use href="#i-stack"/></svg></button>
-    <button class="icon-btn sairbtn" id="sairBtn" aria-label="Sair" title="Sair"><svg class="i" aria-hidden="true"><use href="#i-logout"/></svg></button>
+    <button class="icon-btn menu-btn" id="menuBtn" type="button" aria-label="Menu" title="Menu" aria-haspopup="true" aria-expanded="false" aria-controls="menuTopo"><svg class="i" aria-hidden="true"><use href="#i-menu"/></svg></button>
+    <div class="hmenu" id="menuTopo" hidden>
+      <button class="mi refbtn" id="refBtn" type="button"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg><span>Atualizar dados</span></button>
+      <button class="mi acessbtn" id="acessBtn" type="button" hidden><svg class="i" aria-hidden="true"><use href="#i-users"/></svg><span>Quem está logado</span></button>
+      <button class="mi cfgbtn" id="cfgBtn" type="button" hidden><svg class="i" aria-hidden="true"><use href="#i-gear"/></svg><span>Configurações</span></button>
+      <button class="mi tvbtn" id="tvBtn" type="button"><svg class="i" aria-hidden="true"><use href="#i-monitor"/></svg><span>Modo TV</span></button>
+      <button class="mi tema-btn" type="button" aria-label="Tema: escolher" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg><span>Tema</span></button>
+      <button class="mi blkbtn" id="blkBtn" type="button"><svg class="i" aria-hidden="true"><use href="#i-stack"/></svg><span>Backlog</span></button>
+      <button class="mi sairbtn" id="sairBtn" type="button"><svg class="i" aria-hidden="true"><use href="#i-logout"/></svg><span>Sair</span></button>
+    </div>
   </header>
-
-  <div id="frescor" class="frescor" role="status" hidden></div>
 
   <div class="tools">
     <label class="search">
@@ -136,7 +153,7 @@
     <div class="kpi warn"><svg class="i" aria-hidden="true"><use href="#i-clock"/></svg><b id="kPend">0</b><span>Pendências</span></div>
     <div class="kpi inst"><svg class="i" aria-hidden="true"><use href="#i-bars"/></svg><b id="kInst">0</b><span>Instalações</span></div>
     <div class="kpi plk"><svg class="i" aria-hidden="true"><use href="#i-play"/></svg><b id="kPlay">0</b><span>Play</span></div>
-    <div class="kpi ok"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><b id="kConcl">0</b><span>Concluídos</span><button type="button" class="kcmp" id="kCmp" hidden></button></div>
+    <div class="kpi ok"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><b id="kConcl">0</b><span>Concluídos</span></div>
     <div class="kpi gap" id="kGapCard"><svg class="i" id="kGapIcon" aria-hidden="true"><use href="#i-gap"/></svg><b id="kGap">0</b><span>Gap</span></div>
   </section>
 
@@ -173,14 +190,19 @@
       <div class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.8l9.2 4.9-9.2 4.9-9.2-4.9z" stroke="#ff8a1f" stroke-width="2.2"/><path d="M2.8 12l9.2 4.9 9.2-4.9M2.8 16.3l9.2 4.9 9.2-4.9" stroke="#3b9bff" stroke-width="2.4"/></svg></div>
       <div><h1 id="bTitulo">Backlog</h1><p id="bSub">OS abertas</p></div>
     </div>
-    <button class="icon-btn refbtn" id="bRef" aria-label="Atualizar dados"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg></button>
-    <button class="icon-btn tvbtn" id="bTvBtn" type="button" aria-label="Modo TV" title="Modo TV"><svg class="i" aria-hidden="true"><use href="#i-monitor"/></svg></button>
-    <button class="icon-btn tema-btn" type="button" aria-label="Tema: escolher" title="Tema" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg></button>
-    <button class="icon-btn bfiltbtn" id="bFiltBtn" aria-label="Filtrar por supervisor" title="Filtrar por supervisor"><svg class="i" aria-hidden="true"><use href="#i-sliders"/></svg></button>
-    <button class="icon-btn" id="bHome" aria-label="Voltar" title="Voltar"><svg class="i" aria-hidden="true"><use href="#i-home"/></svg></button>
+    <button class="icon-btn menu-btn" id="bMenuBtn" type="button" aria-label="Menu" title="Menu" aria-haspopup="true" aria-expanded="false" aria-controls="bMenuTopo"><svg class="i" aria-hidden="true"><use href="#i-menu"/></svg></button>
+    <div class="hmenu" id="bMenuTopo" hidden>
+      <button class="mi refbtn" id="bRef" type="button"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg><span>Atualizar dados</span></button>
+      <button class="mi acessbtn" id="bAcessBtn" type="button" hidden><svg class="i" aria-hidden="true"><use href="#i-users"/></svg><span>Quem está logado</span></button>
+      <button class="mi cfgbtn" id="bCfgBtn" type="button" hidden><svg class="i" aria-hidden="true"><use href="#i-gear"/></svg><span>Configurações</span></button>
+      <button class="mi tvbtn" id="bTvBtn" type="button"><svg class="i" aria-hidden="true"><use href="#i-monitor"/></svg><span>Modo TV</span></button>
+      <button class="mi tema-btn" type="button" aria-label="Tema: escolher" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg><span>Tema</span></button>
+      <button class="mi bfiltbtn" id="bFiltBtn" type="button"><svg class="i" aria-hidden="true"><use href="#i-sliders"/></svg><span>Filtrar por supervisor</span></button>
+      <button class="mi homebtn" id="bHome" type="button"><svg class="i" aria-hidden="true"><use href="#i-bars"/></svg><span>Produção</span></button>
+      <button class="mi sairbtn" id="bSairBtn" type="button"><svg class="i" aria-hidden="true"><use href="#i-logout"/></svg><span>Sair</span></button>
+    </div>
   </header>
 
-  <div id="bFrescor" class="frescor" role="status" hidden></div>
   <button type="button" class="fbtn bnotif" id="bNotif" hidden>Avisar quando OS estiver para vencer</button>
 
   <div class="modo hoje" id="bModo" role="status"></div>
@@ -225,6 +247,30 @@
       <button class="more" id="bMais" type="button" hidden>Mostrar mais</button>
     </section>
   </div>
+  <div data-rodape></div>
+</div>
+
+
+<!-- ===== CONFIGURAÇÕES (coordenador e supervisor) ===== -->
+<div class="bwrap" id="cfg">
+  <header class="top">
+    <div class="brand">
+      <div class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2" stroke="#ff8a1f" stroke-width="2.2"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7" stroke="#3b9bff" stroke-width="2.4"/></svg></div>
+      <div><h1 id="cTitulo">Configurações</h1><p id="cSub">Cadastros e dados</p></div>
+    </div>
+    <button class="icon-btn menu-btn" id="cMenuBtn" type="button" aria-label="Menu" title="Menu" aria-haspopup="true" aria-expanded="false" aria-controls="cMenuTopo"><svg class="i" aria-hidden="true"><use href="#i-menu"/></svg></button>
+    <div class="hmenu" id="cMenuTopo" hidden>
+      <button class="mi refbtn" id="cRef" type="button"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg><span>Atualizar dados</span></button>
+      <button class="mi acessbtn" id="cAcessBtn" type="button"><svg class="i" aria-hidden="true"><use href="#i-users"/></svg><span>Quem está logado</span></button>
+      <button class="mi tema-btn" type="button" aria-label="Tema: escolher" aria-haspopup="menu" aria-expanded="false"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg><span>Tema</span></button>
+      <button class="mi blkbtn" id="cBlk" type="button"><svg class="i" aria-hidden="true"><use href="#i-stack"/></svg><span>Backlog</span></button>
+      <button class="mi homebtn" id="cHome" type="button"><svg class="i" aria-hidden="true"><use href="#i-bars"/></svg><span>Produção</span></button>
+      <button class="mi sairbtn" id="cSairBtn" type="button"><svg class="i" aria-hidden="true"><use href="#i-logout"/></svg><span>Sair</span></button>
+    </div>
+  </header>
+  <div class="cf-tabs" id="cfTabs" role="tablist" aria-label="Seções de configuração"></div>
+  <div class="cf-status" id="cfStatus" role="status" aria-live="polite"></div>
+  <main class="cf-body" id="cfBody" role="tabpanel" tabindex="-1"></main>
   <div data-rodape></div>
 </div>
 
@@ -353,6 +399,21 @@
   <div id="acLista"></div>
   <div class="actions"><button type="button" class="btn pri" id="acFechar">Fechar</button></div>
 </div></dialog>
+
+<!-- Formulário genérico das Configurações (cadastros, prioridades) -->
+<dialog id="dlgForm" aria-labelledby="dfTitulo"><form class="dlg" id="dfForm" novalidate>
+  <h2 id="dfTitulo"></h2><p class="sub" id="dfSub"></p>
+  <div id="dfCampos"></div>
+  <div class="cf-err" id="dfErro" role="alert" hidden></div>
+  <div class="actions"><button type="button" class="btn" id="dfCancelar">Cancelar</button><button type="submit" class="btn pri" id="dfSalvar">Salvar</button></div>
+</form></dialog>
+
+<!-- Confirmação genérica (opcionalmente pede para digitar um texto) -->
+<dialog id="dlgConf" aria-labelledby="cnTitulo"><form class="dlg" id="cnForm">
+  <h2 id="cnTitulo"></h2><p class="sub" id="cnTexto"></p>
+  <div id="cnDigita" hidden><label for="cnInput" id="cnRotulo"></label><input id="cnInput" class="ctl" type="text" autocomplete="off" autocapitalize="none"></div>
+  <div class="actions"><button type="button" class="btn" id="cnNao">Cancelar</button><button type="submit" class="btn pri" id="cnSim">Confirmar</button></div>
+</form></dialog>
 
 <!-- Código de acesso -->
 <dialog id="dlgCodigo"><form method="dialog" class="dlg" id="cForm">

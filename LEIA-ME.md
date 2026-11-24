@@ -1,3 +1,57 @@
+# Configurações dentro do painel (etapas 1 a 6 do roteiro de configurações)
+
+Coordenador e supervisor ganharam o item **Configurações** no menu de 3 barrinhas (logo abaixo de "Quem está logado"). Nada da Produção, do Backlog, do login, das metas ou da classificação das OS foi alterado: no Code.gs, a única linha antiga que mudou foi o retorno do login (agora traz também o token).
+
+## Como publicar (nesta ordem)
+1. **Code.gs primeiro**: cole no Apps Script, salve e **Implantar > Gerenciar implantações > Editar (lápis) > Nova versão > Implantar** (mesmo link /exec). Sem nova versão o painel novo não consegue gravar.
+2. Rode no editor `testarPermissoes`, `testarLog` e `testarEnvio` (não leem nem gravam a planilha real). Todos devem terminar em "todos os N casos OK".
+3. Depois publique os 3 arquivos do site: `index.html`, `styles.css`, `app.js`. Dê Ctrl+F5 para limpar o cache.
+4. A implantação precisa continuar com acesso "Qualquer pessoa" (como já era). Na primeira gravação o Google pode pedir autorização (CacheService, LockService e planilha): aceite.
+
+## O que mudou
+- **Etapa 1, base segura (Code.gs)**: login devolve um token (CacheService, 6 h); as gravações entram por `doPost` (JSON); permissão conferida no servidor a cada ação (coordenador: tudo; supervisor: só técnicos e controladores da própria equipe, sem Metas/Config; técnico e controlador: nada); `LockService` em toda gravação; conferência da versão da linha (se a linha mudou na planilha desde que a tela a carregou, recusa e pede para recarregar); aba **Log_Alterações** (data/hora, login, perfil, ação, aba, chave da linha, valor antigo e novo; senha e código de acesso nunca vão para o log); `limparCache()` depois de gravar; backup em aba oculta `Backup_<aba>` (só o último de cada aba) com restauração; erros em português.
+- **Etapa 2, cadastros**: abas Técnicos, Controladores, Supervisores e Coordenadores com busca, filtro Ativos/Inativos/Todos, Adicionar, Editar e Ativar/Desativar (desativar grava `Ativo = NÃO`; nada é apagado). Supervisor e Tipo são escolhidos em lista; login único entre as 4 abas; sem espaços no login; nome obrigatório (e único na aba). Senhas mascaradas com botão de mostrar; supervisor vê e redefine as da própria equipe. Só as células alteradas são gravadas: colunas extras e fórmulas ficam como estão.
+- **Etapa 3, Metas e Config (só coordenador)**: Metas com vírgula decimal e validação I ≤ II ≤ III ≤ IV, adicionar tipo, remover tipo (avisa quantos técnicos usam; faz backup). Config com validação de números e HH:MM; linhas desconhecidas da aba não são tocadas; mudar o código de acesso pede confirmação.
+- **Etapa 4, Enviar dados**: Encerramentos, Encerramentos_Hoje e Base_Abertos, em .xlsx, .xls ou .csv, lidos no navegador (SheetJS 0.18.5 do cdnjs, carregado só quando se escolhe um .xlsx/.xls). Colunas casadas pelo NOME, em qualquer ordem; faltou obrigatória = bloqueia; sobrando = ignora e avisa. Modos: substituir tudo, acrescentar sem duplicar e (só Encerramentos_Hoje e Base_Abertos) mesclar. Protocolo comparado só pelos dígitos; notação científica ou sem dígitos não entra; repetido no arquivo entra a primeira; já existente na aba mantém a da planilha. Prévia obrigatória, alerta forte com digitação do nome da aba, lotes numa aba temporária oculta (a aba verdadeira só muda no final, com backup, e se a gravação falhar o backup volta sozinho), "Desfazer último envio", relatório com CSV das ignoradas/inválidas, carimbo do Sincronismo (Base_Abertos A2, Encerramentos_Hoje B2, Encerramentos C2; nenhuma outra célula).
+- **Etapa 5, Escala e Prioridades**: Prioridades só adiciona e edita (não existe apagar); protocolo só dígitos (8 ou mais). Escala_FDS: escolhe a data e troca o código de cada pessoa, só com códigos que a aba já usa; nova pessoa precisa existir na aba Técnicos; supervisor só vê e edita a própria equipe. Backup antes de cada gravação, com "Restaurar último backup" (coordenador).
+
+## Decisões que tomei (confira se concordam)
+- Para o conteúdo da aba, **a coluna de destino manda**: se a coluna guarda número/data de verdade, o envio grava número/data; se guarda texto, grava texto. Protocolo de coluna numérica vira número só quando é seguro (sem zero à esquerda, até 15 dígitos); senão fica texto.
+- **Colunas com fórmula na linha 2** da aba de destino não recebem valores do arquivo; a fórmula é repetida nas linhas novas. (Você deixou em branco o campo "[PREENCHER]" do prompt 4, então tratei os dois casos: com e sem fórmula.)
+- Tipo de uma meta existente não pode ser renomeado pela tela (os técnicos perderiam a meta); remova e crie outro, ou mude também a coluna Tipo em Técnicos.
+- Alerta forte (digitar o nome da aba) também vale para a mesclagem que remove mais da metade das linhas, e um envio sem nenhuma linha válida nunca esvazia a aba.
+- Desfazer envio devolve também o carimbo antigo da célula do Sincronismo daquela aba.
+- Limite de 100 mil linhas por arquivo (constante `ENVIO_MAX_LINHAS`).
+
+## Riscos conhecidos
+- **O Google Sheets converte textos que parecem número/data** ao gravar; o código formata como texto só as células necessárias, mas confira os zeros à esquerda e as datas no primeiro envio real.
+- Edição **simultânea**: a trava e a versão da linha evitam sobrescrever, mas quem estiver com a tela aberta recebe "recarregue" ao salvar uma linha que mudou. Isso é proposital.
+- **Desfazer** restaura a aba inteira como estava antes do envio: o que alguém digitou direto na aba depois do envio se perde. Só existe 1 backup por aba (o último).
+- Fórmulas só são preservadas se estiverem na **linha 2** e forem iguais para todas as linhas daquela coluna.
+- A senha aparece na tela para coordenador e supervisor (pedido seu) e trafega no corpo do POST (HTTPS). O login do site continua sendo feito como antes.
+- Sessão dura até 6 h; depois o painel entra de novo sozinho com as credenciais guardadas.
+- A aba **Sincronismo** precisa existir; se não existir, o envio grava os dados e avisa que não carimbou.
+- Aba de log e abas Backup_/Temp_Envio_ ficam na planilha (Backup_ e Temp_ ocultas). Não renomeie nem apague o cabeçalho das abas.
+
+## Checklist de teste (numa CÓPIA da planilha)
+1. **Perfis**: entre como coordenador (vê 9 abas), supervisor (vê Técnicos, Controladores, Enviar dados, Escala, Prioridades e só a própria equipe) e técnico/controlador (nem aparece "Configurações"). Como supervisor, confirme que não aparece pessoa de outra equipe.
+2. **Cadastros** (cada um dos 4): adicionar, editar, desativar e reativar; login repetido (inclusive igual ao de outra aba, com maiúscula diferente); login com espaço; nome vazio; supervisor inexistente. Veja na planilha: colunas extras e fórmulas da linha continuaram iguais e a senha com zero à esquerda (ex.: 00789) ficou como texto. Entre com o login novo.
+3. **Metas**: vírgula decimal, I > II (deve recusar), campo vazio, tipo repetido, adicionar tipo, remover tipo em uso (deve avisar quantos técnicos), restaurar último backup.
+4. **Config**: horário 25:00, gap 7, número inválido; mudar o código de acesso (confirmação e novo código passa a valer); conferir que linhas extras da aba continuam lá.
+5. **Envio, cada aba x cada modo**: Encerramentos (acrescentar e substituir), Encerramentos_Hoje e Base_Abertos (substituir, acrescentar com o aviso, mesclar). Confira prévia, contagens, relatório, CSV baixado e o carimbo (A2/B2/C2 só da aba enviada).
+6. **Arquivo com protocolos duplicados** (repetidos no arquivo e já existentes na aba), com protocolo em notação científica (1,23E+10), com zeros à esquerda, e colunas em ordem diferente com uma coluna a mais.
+7. **Arquivo com coluna obrigatória faltando**: deve bloquear com aviso.
+8. **Arquivo pequeno demais** no modo substituir (menos da metade das linhas): precisa pedir o nome da aba; cancele e confira que nada mudou.
+9. **Cancelar no meio** e **fechar a aba do navegador no meio** de um envio grande: a aba verdadeira deve continuar intacta.
+10. **Desfazer último envio**: conteúdo e carimbo voltam.
+11. **Edição direto na planilha logo depois de salvar pelo sistema**: salve um cadastro, edite outra coluna da mesma linha direto na planilha, volte à tela sem recarregar e tente salvar: deve avisar para recarregar. Depois recarregue e salve: deve funcionar.
+12. **Prioridades**: protocolo com letras (recusa), adicionar, editar, e confirmar que não existe apagar. **Escala**: trocar o código de alguém numa data e conferir na aba.
+13. Conferir que **Produção e Backlog** mostram os mesmos números de antes (compare com uma captura anterior).
+14. Celular: tudo acima (cartões, botões de 44 px, envio de arquivo pelo celular).
+15. Abra a aba **Log_Alterações** e confira que nenhuma senha nem código de acesso aparece.
+
+---
+
 # Produção Parcial — versão final (21 etapas do roteiro)
 
 ## O que tem na pasta
@@ -116,3 +170,11 @@ Testado com simulador (dados fictícios + os pedidos reais da planilha) e navega
 - Cada chamada autenticada grava o horário (PropertiesService, no máximo 1 vez por 45 s). A tela aberta e visível avisa a cada 90 s. **Online** = atividade nos últimos 4 minutos. "Sair" marca offline na hora; fechar a aba só cai para offline em até 4 min.
 - Aparecem só técnicos e controladores **ativos e com login e senha**.
 - Na primeira publicação todos aparecem como "Nunca acessou" até entrarem.
+
+---
+
+# Novidades (menu, login e limpeza)
+- **Ranking removido:** sumiram as medalhas 1º/2º/3º ao lado do nome do técnico.
+- **Faixa vermelha "Dados sem atualizar há..." e chip "Dados de HH:MM, atualizando..." removidos** (Produção e Backlog).
+- **Menu de 3 barrinhas** no canto superior direito, igual na Produção e no Backlog, mesma cor e ordem: Atualizar dados, Quem está logado (supervisor/coordenador), Modo TV, Tema, [Filtrar por supervisor, só no Backlog], Backlog ou Produção, Sair. No celular, Backlog/Produção ficam só na barra inferior (como antes).
+- **Login repaginado** conforme o modelo: duas colunas no desktop, uma coluna no celular. Campos sem texto interno; "Manter conectado" (igual ao botão Salvar); "Esqueceu sua senha?" orienta procurar o supervisor responsável para redefinir senha ou usuário.
