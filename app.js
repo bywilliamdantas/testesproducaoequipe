@@ -180,7 +180,7 @@ function definirUsuario(u) {
   const ant = state.user, mudou = !ant || ant.nome !== u.nome || ant.papel !== u.papel;
   state.user = u;
   $('acessBtn').hidden = $('bAcessBtn').hidden = !(u.papel === 'supervisor' || u.papel === 'coordenador');   // quem está logado: só supervisor e coordenador
-  $('cfgBtn').hidden = $('bCfgBtn').hidden = !(u.papel === 'supervisor' || u.papel === 'coordenador');       // Configurações: só supervisor e coordenador
+  $s('cfgBtn').hidden = $s('bCfgBtn').hidden = !(u.papel === 'supervisor' || u.papel === 'coordenador');       // Configurações: só supervisor e coordenador
   ['p-tec', 'p-sup', 'p-coord'].forEach(c => document.body.classList.remove(c));
   document.body.classList.add({ tecnico: 'p-tec', supervisor: 'p-sup', coordenador: 'p-coord' }[u.papel] || 'p-sup');
   if (!mudou) return;
@@ -2409,6 +2409,7 @@ document.addEventListener('visibilitychange', () => {
 })();
 
 
+const $s = id => document.getElementById(id) || new Proxy({}, { get: (t, k) => k === 'addEventListener' || k === 'appendChild' ? () => {} : undefined, set: () => true });   // tolera index.html antigo (sem os elementos novos)
 /* ============ CONFIGURAÇÕES (cadastros, Metas, Config, envio de arquivos, Escala e Prioridades) ============
    Gravações vão por POST com TOKEN de sessão (nada de login e senha repetidos). A permissão é conferida no servidor a cada ação:
    o que aparece ou some aqui é só conforto. Textos sempre entram por textContent (nada de innerHTML com dados). */
@@ -2492,8 +2493,8 @@ function abrirForm(o) {
   abrirDlg($('dlgForm'));
   const p = box.querySelector('input:not([disabled]):not([type=checkbox]), select:not([disabled]), textarea'); if (p) p.focus();
 }
-$('dfCancelar').onclick = () => $('dlgForm').close();
-$('dfForm').addEventListener('submit', async e => {
+$s('dfCancelar').onclick = () => $('dlgForm').close();
+$s('dfForm').addEventListener('submit', async e => {
   e.preventDefault();
   const o = cfForm.o; if (!o || cfForm.busy) return;
   const dados = {}; o.campos.forEach(c => { const i = $('ff_' + c.k); dados[c.k] = c.tipo === 'check' ? i.checked : i.value; });
@@ -2517,10 +2518,10 @@ function confirmar(o) {
     abrirDlg(d); (o.digitar ? $('cnInput') : sim).focus();
   });
 }
-$('cnInput').addEventListener('input', () => { $('cnSim').disabled = conf.digitar && $('cnInput').value.trim() !== conf.digitar; });
-$('cnForm').addEventListener('submit', e => { e.preventDefault(); if ($('cnSim').disabled) return; const r = conf.res; conf.res = null; $('dlgConf').close(); if (r) r(true); });
-$('cnNao').onclick = () => $('dlgConf').close();
-$('dlgConf').addEventListener('close', () => { const r = conf.res; conf.res = null; if (r) r(false); });
+$s('cnInput').addEventListener('input', () => { $('cnSim').disabled = conf.digitar && $('cnInput').value.trim() !== conf.digitar; });
+$s('cnForm').addEventListener('submit', e => { e.preventDefault(); if ($('cnSim').disabled) return; const r = conf.res; conf.res = null; $('dlgConf').close(); if (r) r(true); });
+$s('cnNao').onclick = () => $('dlgConf').close();
+$s('dlgConf').addEventListener('close', () => { const r = conf.res; conf.res = null; if (r) r(false); });
 
 /* ----- navegação e abas ----- */
 const CF_AM = ['coordenador', 'supervisor'], CF_C = ['coordenador'];
@@ -2567,10 +2568,10 @@ function fecharCfg(para) {
   document.body.classList.remove('v-cfg');
   if (para === 'blk') abrirBacklog(); else fecharBacklog();
 }
-['cfgBtn', 'bCfgBtn'].forEach(id => { $(id).onclick = abrirCfg; });
-$('cHome').onclick = () => fecharCfg('prod'); $('cBlk').onclick = () => fecharCfg('blk');
-$('cSairBtn').onclick = () => sair(); $('cAcessBtn').onclick = () => $('acessBtn').click();
-$('cRef').onclick = () => cfIr(cf.aba);
+['cfgBtn', 'bCfgBtn'].forEach(id => { $s(id).onclick = abrirCfg; });
+$s('cHome').onclick = () => fecharCfg('prod'); $s('cBlk').onclick = () => fecharCfg('blk');
+$s('cSairBtn').onclick = () => sair(); $s('cAcessBtn').onclick = () => $('acessBtn').click();
+$s('cRef').onclick = () => cfIr(cf.aba);
 
 /* ----- cadastros (Técnicos, Controladores, Supervisores, Coordenadores) ----- */
 const cfc = {};
